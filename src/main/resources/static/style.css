@@ -1,0 +1,278 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f2f2f2;
+    text-align: center;
+
+}
+
+h1 {
+    margin-bottom: 5px;
+    color: #333;
+}
+
+#game-controls {
+    margin-bottom: 5px;
+}
+
+#game-mode {
+    margin-bottom: 5px;
+}
+
+/* Contêiner de inputs e botões */
+.game-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+/* Campos de entrada */
+.player-input {
+    height: 28px;
+    width: 150px;
+    padding: 0 10px;
+    font-size: 13px;
+    border: 1px solid #b58863;
+    border-radius: 5px;
+    background-color: #fff;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.player-input:focus {
+    outline: none;
+    border-color: #769656;
+    box-shadow: 0 0 5px rgba(118, 150, 86, 0.5);
+}
+
+.player-input::placeholder {
+    color: #888;
+}
+
+/* Botões genéricos */
+.game-button {
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    color: #fff;
+    transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+/* Botão Criar Jogo */
+.create-button {
+    background-color: #769656;
+}
+
+.create-button:hover {
+    background-color: #5e7744;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.create-button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Botão Reiniciar Jogo */
+.reset-button {
+    background-color: #b58863;
+}
+
+.reset-button:hover {
+    background-color: #8f6a4b;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.reset-button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Outros botões */
+button:not(.game-button) {
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+    background-color: #333;
+    color: #fff;
+    margin: 0 5px;
+    border-radius: 5px;
+    transition: background-color 0.2s;
+}
+
+button:not(.game-button):hover {
+    background-color: #555;
+}
+
+button:disabled {
+    background-color: #999;
+    cursor: not-allowed;
+}
+
+#gameIdDisplay,
+#gameStatus {
+    font-weight: bold;
+    margin: 0 5px;
+    color: #222;
+}
+
+/* Contêiner do tabuleiro e coordenadas */
+.board-container {
+    display: inline-block;
+    margin: 0 auto;
+}
+
+/* Coordenadas */
+.board-coordinates {
+    display: grid;
+    grid-template-areas:
+        "top-empty top top-empty2"
+        "left board right"
+        "bottom-empty bottom bottom-empty2";
+    grid-template-columns: 30px 480px 30px;
+    grid-template-rows: 30px 480px 30px;
+}
+
+.top-coordinates,
+.bottom-coordinates {
+    display: flex;
+    grid-area: top;
+}
+
+.bottom-coordinates {
+    grid-area: bottom;
+}
+
+.left-coordinates,
+.right-coordinates {
+    display: flex;
+    flex-direction: column;
+    grid-area: left;
+}
+
+.right-coordinates {
+    grid-area: right;
+}
+
+.top-coordinates span,
+.bottom-coordinates span,
+.left-coordinates span,
+.right-coordinates span {
+    width: 60px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: #333;
+}
+
+.top-coordinates span:first-child,
+.top-coordinates span:last-child,
+.bottom-coordinates span:first-child,
+.bottom-coordinates span:last-child {
+    width: 30px;
+}
+
+/* Tabuleiro */
+#chessboard {
+    grid-area: board;
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    grid-template-rows: repeat(8, 60px);
+    gap: 0;
+    width: 480px;
+    height: 480px;
+    background-color: #fff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-left: 15px;
+}
+
+/* Casas do tabuleiro */
+.square {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background-color 0.2s;
+}
+
+.light {
+    background-color: #f0d9b5;
+}
+
+.dark {
+    background-color: #b58863;
+}
+
+.square:hover {
+    filter: brightness(1.05);
+}
+
+/* Peças */
+.square img {
+    max-width: 85%;
+    max-height: 85%;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Casa selecionada */
+.selected {
+    outline: 3px solid #ffd700;
+    outline-offset: -3px;
+    background-color: rgba(255, 215, 0, 0.3);
+}
+
+/* Movimentos possíveis */
+.possible {
+    background-color: rgba(118, 150, 86, 0.4);
+    position: relative;
+}
+
+.possible::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background-color: rgba(118, 150, 86, 0.6);
+    border-radius: 50%;
+    opacity: 0.8;
+}
+
+/* Diálogo de promoção */
+.promotion-dialog {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    border: 2px solid #000;
+    padding: 20px;
+    z-index: 1000;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.promotion-option {
+    cursor: pointer;
+    margin: 5px;
+}
+
+.promotion-option img {
+    width: 40px;
+    height: 40px;
+}

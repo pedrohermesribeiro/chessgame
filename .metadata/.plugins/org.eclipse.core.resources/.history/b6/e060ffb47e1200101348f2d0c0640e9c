@@ -1,0 +1,895 @@
+package com.chess.chessgame.service;
+
+import java.nio.MappedByteBuffer;
+import java.sql.Clob;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.chess.chessgame.model.Game;
+import com.chess.chessgame.model.Move;
+import com.chess.chessgame.model.Piece;
+import com.chess.chessgame.model.enums.GameStatus;
+import com.chess.chessgame.model.enums.PieceColor;
+import com.chess.chessgame.model.enums.PieceType;
+import com.chess.chessgame.repository.GameRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+@Service
+public class GameService {
+
+    @Autowired
+    private GameRepository gameRepository;
+    
+    private  Clob boardTest = null;
+    
+    private String stringBoard = null;
+    
+    Map<String, Piece> board = new HashMap<>();
+
+    public Game createGame(String playerWhite, String playerBlack) {
+        Game game = new Game();
+        game.setPlayerWhite(playerWhite);
+        game.setPlayerBlack(playerBlack);
+        game.setStatus(GameStatus.IN_PROGRESS);
+        game.setWhiteTurn(true);
+        //this.serializeBoardState(board);
+        
+        Map<String, Piece> board1 = this.initializeBoard();
+        game.setBoardState(this.serializeBoardState(board1));
+         List<String> keysList = new ArrayList<>(this.board.keySet()); 
+       //List<String> str = (List<String>) this.board; 
+        
+        game.setBoardStateHistory(keysList);
+        //gameRepository.ge
+        gameRepository.save(game);
+        Game gm = game;
+        gm.setBoardTest(board);
+        //gameRepository.save(gm);
+        return gm;
+    }
+
+    public Optional<Game> getGame(Long id) {
+        return gameRepository.findById(id);
+    }
+
+    private  Map<String, Piece> initializeBoard() {
+        
+        // Peças brancas
+        board.put("a1", new Piece(PieceType.ROOK, PieceColor.WHITE));
+        board.put("b1", new Piece(PieceType.KNIGHT, PieceColor.WHITE));
+        board.put("c1", new Piece(PieceType.BISHOP, PieceColor.WHITE));
+        board.put("d1", new Piece(PieceType.QUEEN, PieceColor.WHITE));
+        board.put("e1", new Piece(PieceType.KING, PieceColor.WHITE));
+        board.put("f1", new Piece(PieceType.BISHOP, PieceColor.WHITE));
+        board.put("g1", new Piece(PieceType.KNIGHT, PieceColor.WHITE));
+        board.put("h1", new Piece(PieceType.ROOK, PieceColor.WHITE));
+        for (char file = 'a'; file <= 'h'; file++) {
+            board.put(file + "2", new Piece(PieceType.PAWN, PieceColor.WHITE));
+        }
+        // Peças pretas
+        board.put("a8", new Piece(PieceType.ROOK, PieceColor.BLACK));
+        board.put("b8", new Piece(PieceType.KNIGHT, PieceColor.BLACK));
+        board.put("c8", new Piece(PieceType.BISHOP, PieceColor.BLACK));
+        board.put("d8", new Piece(PieceType.QUEEN, PieceColor.BLACK));
+        board.put("e8", new Piece(PieceType.KING, PieceColor.BLACK));
+        board.put("f8", new Piece(PieceType.BISHOP, PieceColor.BLACK));
+        board.put("g8", new Piece(PieceType.KNIGHT, PieceColor.BLACK));
+        board.put("h8", new Piece(PieceType.ROOK, PieceColor.BLACK));
+        for (char file = 'a'; file <= 'h'; file++) {
+            board.put(file + "7", new Piece(PieceType.PAWN, PieceColor.BLACK));
+        }
+        
+        //String str = board;
+        //this.stringBoard = str;
+        //Clob clobs = (Clob)board;
+        //this.boardTest = clobs;
+        return board;
+    }
+    
+    
+    
+    private String serializeBoardState(Map<String, Piece> boardState) {
+    	Map<String, Piece> board = boardState;
+    	try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(boardState);
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao serializar o estado do tabuleiro", e);
+        }
+    }
+
+    public Map<String, Piece> deserializeBoardState(String boardState) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(boardState, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Piece>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao desserializar o estado do tabuleiro", e);
+        }
+    }
+    
+    public Map<String, Piece> desearilizeState(String boardState){
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(boardState, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Piece>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao desserializar o estado do tabuleiro", e);
+        }
+    }
+    
+    
+    public Game makeMove(Long id, String moveNotation) {
+        Optional<Game> gameOpt = gameRepository.findById(id);
+        if (gameOpt.isEmpty()) {
+            throw new IllegalArgumentException("Jogo não encontrado: " + id);
+        }
+        Game game = gameOpt.get();
+
+        Move move = parseNotation(moveNotation, game);
+
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        Piece piece = board.get(move.getFrom());
+        if (piece == null) {
+            throw new IllegalArgumentException("Nenhuma peça na posição de origem: " + move.getFrom());
+        }
+        if (piece.getColor() != (game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK)) {
+            throw new IllegalArgumentException("Não é o turno dessa cor");
+        }
+        if (isKingInCheck(board, PieceColor.BLACK)) {
+            throw new IllegalArgumentException("O Rei continua em check");
+        }
+
+        // Executa o movimento
+        board.remove(move.getFrom());
+        board.put(move.getTo(), piece);
+        game.setBoardState(serializeBoardState(board));
+        game.setWhiteTurn(!game.isWhiteTurn());
+        game.setLastMove(moveNotation);
+        game.getBoardStateHistory().add(game.getBoardState());
+        
+        //boolean kingInCheckGameLast = isKingInCheck(this.desearilizeState(game.getBoardState()),piece.getColor());
+
+        
+        PieceColor oponenteColor = piece.getColor()== PieceColor.WHITE ? PieceColor.WHITE : PieceColor.BLACK;
+
+        // Verifica xeque-mate (simplificado)
+        
+        boolean kingInCheckMate = isCheckmate(board, game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK);
+        
+        
+        boolean kingInCheck = isKingInCheck(board, game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK);
+        
+        boolean kingInCheckLast = isKingInCheck(board, !game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK);
+        
+
+
+        if(kingInCheck) {
+        	game.setInCheck(kingInCheck);
+        }
+        
+        if(kingInCheckMate) {
+        	game.setCheckmate(kingInCheckMate);
+         }
+        
+        return gameRepository.save(game);
+     
+        
+    }
+    
+    
+    private Move parseNotation(String moveNotation, Game game) {
+        if (moveNotation == null || moveNotation.isEmpty()) {
+            throw new IllegalArgumentException("Notação inválida: notação vazia");
+        }
+
+        moveNotation = moveNotation.trim();
+        String cleanNotation = moveNotation.replace(" ", "");
+
+        // Verifica se é roque
+        if (cleanNotation.equals("O-O") || cleanNotation.equals("0-0")) {
+            return new Move(game.isWhiteTurn() ? "e1" : "e8", game.isWhiteTurn() ? "g1" : "g8", true, false);
+        }
+        if (cleanNotation.equals("O-O-O") || cleanNotation.equals("0-0-0")) {
+            return new Move(game.isWhiteTurn() ? "e1" : "e8", game.isWhiteTurn() ? "c1" : "c8", true, false);
+        }
+
+        String from, to;
+        boolean isCapture = cleanNotation.contains("x");
+
+        if (isCapture) {
+            String[] parts = cleanNotation.split("x");
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("Notação de captura inválida: " + moveNotation);
+            }
+
+            String originFile = parts[0]; // ex.: "h"
+            String destination = parts[1]; // ex.: "g5"
+
+            if (originFile.length() != 1 || !files.contains(originFile)) {
+                throw new RuntimeException("Peça inválida na notação: " + originFile);
+            }
+            if (destination.length() != 2 || !files.contains(destination.substring(0, 1)) || !ranks.contains(destination.substring(1))) {
+                throw new IllegalArgumentException("Destino inválido na notação: " + destination);
+            }
+
+            Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+            PieceColor color = game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK;
+            int destRank = Integer.parseInt(destination.substring(1));
+            int direction = color == PieceColor.WHITE ? 1 : -1;
+            String origin = null;
+
+            for (int rank = 1; rank <= 8; rank++) {
+                String pos = originFile + rank;
+                Piece piece = board.get(pos);
+                if (piece != null && piece.getType() == PieceType.PAWN && piece.getColor() == color) {
+                    int rankDiff = destRank - rank;
+                    if (rankDiff == direction && Math.abs(files.indexOf(destination.substring(0, 1)) - files.indexOf(originFile)) == 1) {
+                        origin = pos;
+                        break;
+                    }
+                }
+            }
+
+            if (origin == null) {
+                throw new IllegalArgumentException("Nenhum peão válido encontrado para a captura: " + moveNotation);
+            }
+
+            from = origin;
+            to = destination;
+        } else {
+            if (cleanNotation.length() < 4) {
+                throw new IllegalArgumentException("Notação inválida para movimento simples: " + moveNotation);
+            }
+            from = cleanNotation.substring(0, 2);
+            to = cleanNotation.substring(2, 4);
+
+            if (!files.contains(from.substring(0, 1)) || !ranks.contains(from.substring(1)) ||
+                !files.contains(to.substring(0, 1)) || !ranks.contains(to.substring(1))) {
+                throw new IllegalArgumentException("Posições inválidas na notação: " + moveNotation);
+            }
+        }
+
+        return new Move(from, to, false, false);
+    }
+
+    // Métodos auxiliares organizados
+
+    private void handleKingMove(Game game, Map<String, Piece> board, Piece movingPiece, String from, String to, 
+            int fromRow, int toRow, char fromCol, char toCol, PieceColor playerColor, 
+            PieceColor opponentColor) {
+		int colDiff = toCol - fromCol;
+		int rowDiff = Math.abs(toRow - fromRow);
+
+		if (Math.abs(colDiff) == 2 && fromRow == toRow) { // Roque
+			boolean isKingside = colDiff > 0;
+			String rookFrom = isKingside ? (playerColor == PieceColor.WHITE ? "h1" : "h8")
+					: (playerColor == PieceColor.WHITE ? "a1" : "a8");
+			String rookTo = isKingside ? (playerColor == PieceColor.WHITE ? "f1" : "f8")
+					: (playerColor == PieceColor.WHITE ? "d1" : "d8");
+			boolean kingMoved = playerColor == PieceColor.WHITE ? game.isWhiteKingMoved() : game.isBlackKingMoved();
+			boolean rookMoved = playerColor == PieceColor.WHITE
+					? (isKingside ? game.isWhiteRookH1Moved() : game.isWhiteRookA1Moved())
+					: (isKingside ? game.isBlackRookH8Moved() : game.isBlackRookA8Moved());
+
+			if (!from.equals(playerColor == PieceColor.WHITE ? "e1" : "e8")) {
+				throw new RuntimeException("Posição inicial inválida para roque");
+			}
+			if (kingMoved || rookMoved) {
+				throw new RuntimeException("Roque inválido: rei ou torre já se moveram");
+			}
+			if (isKingInCheck(board, playerColor)) {
+				throw new RuntimeException("Roque inválido: rei está em xeque");
+			}
+			if (!board.containsKey(rookFrom) || board.get(rookFrom).getType() != PieceType.ROOK) {
+				throw new RuntimeException("Roque inválido: torre não está na posição esperada");
+			}
+
+			int step = isKingside ? 1 : -1;
+			for (char c = (char) (fromCol + step); c != toCol + step; c += step) {
+				String pos = c + String.valueOf(fromRow);
+				if (board.containsKey(pos) && !pos.equals(to)) {
+					throw new RuntimeException("Roque inválido: caminho obstruído");
+				}
+				if (isSquareUnderAttack(board, pos, opponentColor)) {
+					throw new RuntimeException("Roque inválido: casa sob ataque");
+				}
+			}
+
+			Piece rook = board.remove(rookFrom);
+			board.put(rookTo, rook);
+			board.put(to, movingPiece);
+			board.remove(from);
+
+			if (playerColor == PieceColor.WHITE) {
+				game.setWhiteKingMoved(true);
+				if (isKingside)
+					game.setWhiteRookH1Moved(true);
+				else
+					game.setWhiteRookA1Moved(true);
+			} else {
+				game.setBlackKingMoved(true);
+				if (isKingside)
+					game.setBlackRookH8Moved(true);
+				else
+					game.setBlackRookA8Moved(true);
+			}
+		} else { // Movimento normal do rei
+			if (rowDiff > 1 || Math.abs(colDiff) > 1) {
+				throw new RuntimeException("O rei só pode se mover uma casa em qualquer direção");
+			}
+			if (board.containsKey(to) && board.get(to).getColor() == movingPiece.getColor()) {
+				throw new RuntimeException("O rei não pode capturar peça da mesma cor");
+			}
+			if (playerColor == PieceColor.WHITE)
+				game.setWhiteKingMoved(true);
+			else
+				game.setBlackKingMoved(true);
+			executeMove(board, from, to, movingPiece, playerColor);
+		}
+	}
+
+    private void handlePawnMove(Game game, Map<String, Piece> board, Piece movingPiece, String from, String to, 
+                                int fromRow, int toRow, char fromCol, char toCol, PieceColor playerColor) {
+        int direction = playerColor == PieceColor.WHITE ? 1 : -1;
+        int startRow = playerColor == PieceColor.WHITE ? 2 : 7;
+        boolean isCapture = board.containsKey(to);
+
+        if (fromCol == toCol) { // Movimento reto
+            if (isCapture) {
+                throw new RuntimeException("Peão não pode capturar em linha reta");
+            }
+            if (toRow - fromRow == direction) {
+                // Avanço de 1 casa
+            } else if (fromRow == startRow && toRow - fromRow == 2 * direction) {
+                String intermediate = fromCol + String.valueOf(fromRow + direction);
+                if (board.containsKey(intermediate)) {
+                    throw new RuntimeException("Peão não pode pular sobre peças");
+                }
+            } else {
+                throw new RuntimeException("Movimento inválido de peão");
+            }
+        } else if (Math.abs(fromCol - toCol) == 1 && toRow - fromRow == direction) { // Diagonal
+            if (isCapture) {
+                if (board.get(to).getColor() == movingPiece.getColor()) {
+                    throw new RuntimeException("Peão não pode capturar peça da mesma cor");
+                }
+            } else { // En passant
+                String lastMove = game.getLastMove();
+                if (lastMove != null) {
+                    String[] parts = lastMove.split("-");
+                    String lastFrom = parts[0];
+                    String lastTo = parts[1];
+                    int lastFromRow = Character.getNumericValue(lastFrom.charAt(1));
+                    int lastToRow = Character.getNumericValue(lastTo.charAt(1));
+                    char lastToCol = lastTo.charAt(0);
+                    String enPassantTarget = toCol + String.valueOf(fromRow);
+
+                    if (board.containsKey(enPassantTarget) &&
+                        board.get(enPassantTarget).getType() == PieceType.PAWN &&
+                        board.get(enPassantTarget).getColor() != playerColor &&
+                        lastFrom.equals(enPassantTarget) &&
+                        lastTo.equals(toCol + String.valueOf(toRow - direction)) &&
+                        Math.abs(lastToRow - lastFromRow) == 2 &&
+                        lastToCol == toCol) {
+                        board.remove(enPassantTarget);
+                    } else {
+                        throw new RuntimeException("Peão só pode se mover na diagonal se for capturar");
+                    }
+                } else {
+                    throw new RuntimeException("Peão só pode se mover na diagonal se for capturar");
+                }
+            }
+        } else {
+            throw new RuntimeException("Movimento inválido de peão");
+        }
+
+        // Promoção
+        if (playerColor == PieceColor.WHITE && toRow == 8 || playerColor == PieceColor.BLACK && toRow == 1) {
+            movingPiece = new Piece(PieceType.QUEEN, playerColor);
+        }
+        executeMove(board, from, to, movingPiece, playerColor);
+    }
+
+    private void validateRookMove(Map<String, Piece> board, int fromRow, int toRow, char fromCol, char toCol, Piece movingPiece) {
+        boolean isHorizontal = fromRow == toRow;
+        boolean isVertical = fromCol == toCol;
+        if (!(isHorizontal || isVertical)) {
+            throw new RuntimeException("Movimento inválido da torre. Só pode mover em linha reta.");
+        }
+        checkPathClear(board, fromRow, toRow, fromCol, toCol, isHorizontal ? "horizontal" : "vertical", movingPiece);
+    }
+
+    private void validateKnightMove(int fromRow, int toRow, char fromCol, char toCol, Piece movingPiece, Map<String, Piece> board, String to) {
+        int rowDiff = Math.abs(toRow - fromRow);
+        int colDiff = Math.abs(toCol - fromCol);
+        if (!((rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2))) {
+            throw new RuntimeException("Movimento inválido do cavalo");
+        }
+        if (board.containsKey(to) && board.get(to).getColor() == movingPiece.getColor()) {
+            throw new RuntimeException("Cavalo não pode capturar peça da mesma cor");
+        }
+    }
+
+    private void validateBishopMove(Map<String, Piece> board, int fromRow, int toRow, char fromCol, char toCol, Piece movingPiece, String to) {
+        int rowDiff = toRow - fromRow;
+        int colDiff = toCol - fromCol;
+        if (Math.abs(rowDiff) != Math.abs(colDiff)) {
+            throw new RuntimeException("Movimento inválido do bispo. Deve ser em diagonal.");
+        }
+        checkPathClear(board, fromRow, toRow, fromCol, toCol, "diagonal", movingPiece);
+    }
+
+    private void validateQueenMove(Map<String, Piece> board, int fromRow, int toRow, char fromCol, char toCol, Piece movingPiece, String to) {
+        int rowDiff = toRow - fromRow;
+        int colDiff = toCol - fromCol;
+        boolean isHorizontal = rowDiff == 0 && colDiff != 0;
+        boolean isVertical = colDiff == 0 && rowDiff != 0;
+        boolean isDiagonal = Math.abs(rowDiff) == Math.abs(colDiff) && rowDiff != 0;
+        if (!(isHorizontal || isVertical || isDiagonal)) {
+            throw new RuntimeException("Movimento inválido da rainha. Deve ser em linha reta ou diagonal.");
+        }
+        checkPathClear(board, fromRow, toRow, fromCol, toCol, isHorizontal ? "horizontal" : isVertical ? "vertical" : "diagonal", movingPiece);
+    }
+
+    private void checkPathClear(Map<String, Piece> board, int fromRow, int toRow, char fromCol, char toCol, String direction, Piece movingPiece) {
+        if (direction.equals("horizontal")) {
+            int step = toCol > fromCol ? 1 : -1;
+            for (int c = fromCol + step; c != toCol; c += step) {
+                String pos = (char) c + String.valueOf(fromRow);
+                if (board.containsKey(pos)) {
+                    throw new RuntimeException(movingPiece.getType() + " não pode pular sobre peças");
+                }
+            }
+        } else if (direction.equals("vertical")) {
+            int step = toRow > fromRow ? 1 : -1;
+            for (int r = fromRow + step; r != toRow; r += step) {
+                String pos = String.valueOf(fromCol) + r;
+                if (board.containsKey(pos)) {
+                    throw new RuntimeException(movingPiece.getType() + " não pode pular sobre peças");
+                }
+            }
+        } else { // diagonal
+            int rowStep = toRow > fromRow ? 1 : -1;
+            int colStep = toCol > fromCol ? 1 : -1;
+            int r = fromRow + rowStep;
+            int c = fromCol + colStep;
+            while (r != toRow && c != toCol) {
+                String pos = (char) c + String.valueOf(r);
+                if (board.containsKey(pos)) {
+                    throw new RuntimeException(movingPiece.getType() + " não pode pular sobre peças");
+                }
+                r += rowStep;
+                c += colStep;
+            }
+        }
+        String to = toCol + String.valueOf(toRow);
+        if (board.containsKey(to) && board.get(to).getColor() == movingPiece.getColor()) {
+            throw new RuntimeException(movingPiece.getType() + " não pode capturar peça da mesma cor");
+        }
+    }
+
+    private void markRookMoved(Game game, String from, PieceColor playerColor) {
+        if (playerColor == PieceColor.WHITE) {
+            if (from.equals("a1")) game.setWhiteRookA1Moved(true);
+            else if (from.equals("h1")) game.setWhiteRookH1Moved(true);
+        } else {
+            if (from.equals("a8")) game.setBlackRookA8Moved(true);
+            else if (from.equals("h8")) game.setBlackRookH8Moved(true);
+        }
+    }
+
+    private void executeMove(Map<String, Piece> board, String from, String to, Piece movingPiece, PieceColor playerColor) {
+        Piece target = board.get(to);
+        board.put(to, movingPiece);
+        board.remove(from);
+        if (isKingInCheck(board, playerColor)) {
+            board.remove(to);
+            board.put(from, movingPiece);
+            if (target != null) board.put(to, target);
+            throw new RuntimeException("Movimento inválido: coloca o próprio rei em xeque");
+        }
+    }
+
+    private void updateGameState(Game game, Map<String, Piece> board, String notation, PieceColor opponentColor, ObjectMapper mapper) throws Exception {
+        String newBoardState = mapper.writeValueAsString(board);
+        game.setBoardState(newBoardState);
+        game.setLastMove(notation);
+
+        String positionKey = newBoardState + game.isWhiteTurn() +
+                            game.isWhiteKingMoved() + game.isWhiteRookA1Moved() +
+                            game.isWhiteRookH1Moved() + game.isBlackKingMoved() +
+                            game.isBlackRookA8Moved() + game.isBlackRookH8Moved();
+        game.getBoardStateHistory().add(positionKey);
+
+        long repetitionCount = game.getBoardStateHistory().stream()
+            .filter(state -> state.equals(positionKey))
+            .count();
+        if (repetitionCount >= 3) {
+            game.setStatus(GameStatus.DRAW); // Corrigido para usar enum
+        } else if (isKingInCheck(board, opponentColor)) {
+            if (isCheckmate(board, opponentColor)) {
+                game.setStatus(GameStatus.CHECKMATE); // Corrigido para usar enum
+                game.setWhiteTurn(!game.isWhiteTurn());
+            }
+        } else if (isStalemate(board, opponentColor)) {
+            game.setStatus(GameStatus.DRAW); // Corrigido para usar enum
+        }
+
+        if (game.getStatus() != GameStatus.CHECKMATE && game.getStatus() != GameStatus.DRAW) {
+            game.setWhiteTurn(!game.isWhiteTurn());
+        }
+    }
+    
+    
+    /*private Move parseNotation(String moveNotation, Game game) {
+        if (moveNotation == null || moveNotation.isEmpty()) {
+            throw new IllegalArgumentException("Notação inválida: notação vazia");
+        }
+
+        moveNotation = moveNotation.trim();
+        String cleanNotation = moveNotation.replace(" ", "");
+
+        // Verifica se é roque
+        if (cleanNotation.equals("O-O") || cleanNotation.equals("0-0")) {
+            return new Move(game.isWhiteTurn() ? "e1" : "e8", game.isWhiteTurn() ? "g1" : "g8", true, false);
+        }
+        if (cleanNotation.equals("O-O-O") || cleanNotation.equals("0-0-0")) {
+            return new Move(game.isWhiteTurn() ? "e1" : "e8", game.isWhiteTurn() ? "c1" : "c8", true, false);
+        }
+
+        String from, to;
+        boolean isCapture = cleanNotation.contains("x");
+
+        if (isCapture) {
+            String[] parts = cleanNotation.split("x");
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("Notação de captura inválida: " + moveNotation);
+            }
+
+            String originFile = parts[0]; // ex.: "h"
+            String destination = parts[1]; // ex.: "g5"
+
+            if (originFile.length() != 1 || !files.contains(originFile)) {
+                throw new RuntimeException("Peça inválida na notação: " + originFile);
+            }
+            if (destination.length() != 2 || !files.contains(destination.substring(0, 1)) || !ranks.contains(destination.substring(1))) {
+                throw new IllegalArgumentException("Destino inválido na notação: " + destination);
+            }
+
+            Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+            String color = game.isWhiteTurn() ? "WHITE" : "BLACK";
+            int destRank = Integer.parseInt(destination.substring(1));
+            int direction = color.equals("WHITE") ? 1 : -1;
+            String origin = null;
+
+            for (int rank = 1; rank <= 8; rank++) {
+                String pos = originFile + rank;
+                Piece piece = board.get(pos);
+                if (piece != null && piece.getType() == PieceType.PAWN && piece.getColor().equals(color)) {
+                    int rankDiff = destRank - rank;
+                    if (rankDiff == direction && Math.abs(files.indexOf(destination.substring(0, 1)) - files.indexOf(originFile)) == 1) {
+                        origin = pos;
+                        break;
+                    }
+                }
+            }
+
+            if (origin == null) {
+                throw new IllegalArgumentException("Nenhum peão válido encontrado para a captura: " + moveNotation);
+            }
+
+            from = origin;
+            to = destination;
+        } else {
+            if (cleanNotation.length() < 4) {
+                throw new IllegalArgumentException("Notação inválida para movimento simples: " + moveNotation);
+            }
+            from = cleanNotation.substring(0, 2);
+            to = cleanNotation.substring(2, 4);
+
+            if (!files.contains(from.substring(0, 1)) || !ranks.contains(from.substring(1)) ||
+                !files.contains(to.substring(0, 1)) || !ranks.contains(to.substring(1))) {
+                throw new IllegalArgumentException("Posições inválidas na notação: " + moveNotation);
+            }
+        }
+
+        return new Move(from, to, false, false);
+    }*/
+
+
+    // Outros métodos como createGame, getBoardState, etc., permanecem inalterados
+   
+    private boolean isKingInCheck(Map<String, Piece> board, PieceColor kingColor) {
+        String kingPosition = null;
+
+        // 1. Encontrar a posição atual do rei da cor fornecida
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            Piece piece = entry.getValue();
+            if (piece.getType() == PieceType.KING && piece.getColor() == kingColor) {
+                kingPosition = entry.getKey();
+                break;
+            }
+        }
+
+        if (kingPosition == null) return false;
+
+        PieceColor opponentColor = kingColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+
+        // 2. Verificar se alguma peça do oponente pode atingir a posição do rei
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            String from = entry.getKey();
+            Piece piece = entry.getValue();
+
+            if (piece.getColor() == opponentColor) {
+                // ⚠️ Aqui usamos a cor real da peça para verificar o movimento
+                if (isMoveLegal(board, from, kingPosition, piece.getColor())) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    
+    
+    private boolean isPathClear(Map<String, Piece> board, String from, String to, boolean isStraight) {
+        int fromRow = Character.getNumericValue(from.charAt(1));
+        int toRow = Character.getNumericValue(to.charAt(1));
+        char fromCol = from.charAt(0);
+        char toCol = to.charAt(0);
+
+        int rowDiff = toRow - fromRow;
+        int colDiff = toCol - fromCol;
+
+        if (isStraight) {
+            if (rowDiff == 0) { // Horizontal
+                int step = colDiff > 0 ? 1 : -1;
+                for (int c = fromCol + step; c != toCol; c += step) {
+                    String pos = (char) c + String.valueOf(fromRow);
+                    if (board.containsKey(pos)) {
+                        return false;
+                    }
+                }
+            } else { // Vertical
+                int step = rowDiff > 0 ? 1 : -1;
+                for (int r = fromRow + step; r != toRow; r += step) {
+                    String pos = String.valueOf(fromCol) + r;
+                    if (board.containsKey(pos)) {
+                        return false;
+                    }
+                }
+            }
+        } else { // Diagonal
+            int rowStep = rowDiff > 0 ? 1 : -1;
+            int colStep = colDiff > 0 ? 1 : -1;
+            int r = fromRow + rowStep;
+            int c = fromCol + colStep;
+            while (r != toRow && c != toCol) {
+                String pos = (char) c + String.valueOf(r);
+                if (board.containsKey(pos)) {
+                    return false;
+                }
+                r += rowStep;
+                c += colStep;
+            }
+        }
+        return true;
+    }
+    
+    private boolean isCheckmate(Map<String, Piece> board, PieceColor kinColor) {
+        if (!isKingInCheck(board, kinColor)) return false;
+
+        for (Map.Entry<String, Piece> fromEntry : board.entrySet()) {
+            Piece piece = fromEntry.getValue();
+            if (piece.getColor() == kinColor) {
+                String from = fromEntry.getKey();
+                for (char col = 'a'; col <= 'h'; col++) {
+                    for (int row = 1; row <= 8; row++) {
+                        String to = "" + col + row;
+                        Map<String, Piece> tempBoard = new HashMap<>(board);
+                        if (isMoveLegal(tempBoard, from, to, kinColor)) {
+                            Piece captured = tempBoard.remove(to);
+                            tempBoard.put(to, tempBoard.remove(from));
+                            if (!isKingInCheck(tempBoard, kinColor)) {
+                                return false;
+                            }
+                            if (captured != null) tempBoard.put(to, captured);
+                            else tempBoard.remove(to);
+                            tempBoard.put(from, piece);
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    
+    
+    private boolean isMoveLegal(Map<String, Piece> board, String from, String to, PieceColor playerColor) {
+        Piece movingPiece = board.get(from);
+        if (movingPiece == null || movingPiece.getColor() != playerColor) {
+            return false;
+        }
+
+        try {
+            // Copia o tabuleiro para simulação
+            Map<String, Piece> tempBoard = new HashMap<>(board);
+            Piece target = tempBoard.get(to);
+
+            // Validação básica para cada tipo de peça (reutiliza lógica do makeMove)
+            if (movingPiece.getType() == PieceType.PAWN) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                int direction = movingPiece.getColor() == PieceColor.WHITE ? 1 : -1;
+                int startRow = movingPiece.getColor() == PieceColor.WHITE ? 2 : 7;
+                boolean isCapture = tempBoard.containsKey(to);
+                if (fromCol == toCol) {
+                    if (isCapture) return false;
+                    if (toRow - fromRow == direction) return true;
+                    if (fromRow == startRow && toRow - fromRow == 2 * direction) {
+                        String intermediate = fromCol + String.valueOf(fromRow + direction);
+                        return !tempBoard.containsKey(intermediate);
+                    }
+                } else if (Math.abs(fromCol - toCol) == 1 && toRow - fromRow == direction) {
+                	return isCapture && target != null && target.getColor() != movingPiece.getColor();
+                }
+                return false;
+            } else if (movingPiece.getType() == PieceType.ROOK) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                boolean isHorizontal = fromRow == toRow;
+                boolean isVertical = fromCol == toCol;
+                if (!(isHorizontal || isVertical)) return false;
+                return isPathClear(tempBoard, from, to, true) &&
+                       (!tempBoard.containsKey(to) || tempBoard.get(to).getColor() != movingPiece.getColor());
+            } else if (movingPiece.getType() == PieceType.KNIGHT) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                int rowDiff = Math.abs(toRow - fromRow);
+                int colDiff = Math.abs(toCol - fromCol);
+                boolean isValidMove = (rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2);
+                return isValidMove && (!tempBoard.containsKey(to) || tempBoard.get(to).getColor() != movingPiece.getColor());
+            } else if (movingPiece.getType() == PieceType.BISHOP) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                if (Math.abs(toRow - fromRow) != Math.abs(toCol - fromCol)) return false;
+                return isPathClear(tempBoard, from, to, false) &&
+                       (!tempBoard.containsKey(to) || tempBoard.get(to).getColor() != movingPiece.getColor());
+            } else if (movingPiece.getType() == PieceType.QUEEN) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                int rowDiff = toRow - fromRow;
+                int colDiff = toCol - fromCol;
+                boolean isHorizontal = rowDiff == 0 && colDiff != 0;
+                boolean isVertical = colDiff == 0 && rowDiff != 0;
+                boolean isDiagonal = Math.abs(rowDiff) == Math.abs(colDiff) && rowDiff != 0;
+                if (!(isHorizontal || isVertical || isDiagonal)) return false;
+                return isPathClear(tempBoard, from, to, isHorizontal || isVertical) &&
+                       (!tempBoard.containsKey(to) || tempBoard.get(to).getColor() != movingPiece.getColor());
+            } else if (movingPiece.getType() == PieceType.KING) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                int toRow = Character.getNumericValue(to.charAt(1));
+                char fromCol = from.charAt(0);
+                char toCol = to.charAt(0);
+                int rowDiff = Math.abs(toRow - fromRow);
+                int colDiff = Math.abs(toCol - fromCol);
+                return (rowDiff <= 1 && colDiff <= 1) &&
+                       (!tempBoard.containsKey(to) || tempBoard.get(to).getColor() != movingPiece.getColor());
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    
+    private boolean isStalemate(Map<String, Piece> board, PieceColor playerColor) {
+        if (isKingInCheck(board, playerColor)) {
+            return false;
+        }
+
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            Piece piece = entry.getValue();
+            String from = entry.getKey();
+            if (piece.getColor() == playerColor) {
+                for (char col = 'a'; col <= 'h'; col++) {
+                    for (int row = 1; row <= 8; row++) {
+                        String to = col + String.valueOf(row);
+                        if (!from.equals(to) && isMoveLegal(board, from, to, playerColor)) {
+                            Map<String, Piece> tempBoard = new HashMap<>(board);
+                            tempBoard.put(to, tempBoard.remove(from));
+                            if (!isKingInCheck(tempBoard, playerColor)) {
+                                return false; // Há um movimento legal
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true; // Nenhum movimento legal disponível
+    }
+    
+    
+    private boolean isSquareUnderAttack(Map<String, Piece> board, String square, PieceColor attackerColor) {
+        int squareRow = Character.getNumericValue(square.charAt(1));
+        char squareCol = square.charAt(0);
+
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            Piece piece = entry.getValue();
+            String from = entry.getKey();
+            if (piece.getColor() == attackerColor) {
+                int fromRow = Character.getNumericValue(from.charAt(1));
+                char fromCol = from.charAt(0);
+
+                if (piece.getType() == PieceType.PAWN) {
+                    int direction = piece.getColor() == PieceColor.WHITE ? 1 : -1;
+                    if (Math.abs(fromCol - squareCol) == 1 && squareRow - fromRow == direction) {
+                        return true;
+                    }
+                } else if (piece.getType() == PieceType.ROOK) {
+                    if (fromRow == squareRow || fromCol == squareCol) {
+                        if (isPathClear(board, from, square, true)) return true;
+                    }
+                } else if (piece.getType() == PieceType.KNIGHT) {
+                    int rowDiff = Math.abs(squareRow - fromRow);
+                    int colDiff = Math.abs(squareCol - fromCol);
+                    if ((rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2)) {
+                        return true;
+                    }
+                } else if (piece.getType() == PieceType.BISHOP) {
+                    if (Math.abs(squareRow - fromRow) == Math.abs(squareCol - fromCol)) {
+                        if (isPathClear(board, from, square, false)) return true;
+                    }
+                } else if (piece.getType() == PieceType.QUEEN) {
+                    boolean isStraight = fromRow == squareRow || fromCol == squareCol;
+                    boolean isDiagonal = Math.abs(squareRow - fromRow) == Math.abs(squareCol - fromCol);
+                    if (isStraight || isDiagonal) {
+                        if (isPathClear(board, from, square, isStraight)) return true;
+                    }
+                } else if (piece.getType() == PieceType.KING) {
+                    int rowDiff = Math.abs(squareRow - fromRow);
+                    int colDiff = Math.abs(squareCol - fromCol);
+                    if (rowDiff <= 1 && colDiff <= 1) return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+
+    
+    /*public BoardStateDTO getBoardState(Long gameId) {
+        Game game = gameRepository.findById(gameId)
+            .orElseThrow(() -> new RuntimeException("Jogo não encontrado: " + gameId));
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        return new BoardStateDTO(board);
+    }*/
+    
+    private static final List<String> files = Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h");
+    private static final List<String> ranks = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8");
+
+	public Map<String, Piece> serializeBoardState1() {
+		// TODO Auto-generated method stub
+		return this.board;
+	}
+}

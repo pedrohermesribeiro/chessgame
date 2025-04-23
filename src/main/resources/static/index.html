@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chess Game</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        /* Estilos inline mantidos, sem alterações */
+        .square {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .game-message {
+            margin-top: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #d32f2f;
+            text-align: center;
+            height: 25px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chess Game</h1>
+    <div id="game-mode">
+        <label for="mode-select">Choose Game Mode:</label>
+            <select id="mode-select">
+                <option value="multi">Multi Browser (Two Players)</option>
+                <option value="single">Single Browser (One Player)</option>
+                <option value="vsComputer">Player vs. Computer</option>
+            </select>
+        <label for="player-color">Cor:</label>
+        <select id="player-color">
+            <option value="WHITE">Brancas</option>
+            <option value="BLACK">Pretas</option>
+        </select>
+    </div>
+    <div class="game-inputs">
+        <input type="text" id="playerWhite" class="player-input" placeholder="Jogador Branco">
+        <input type="text" id="playerBlack" class="player-input" placeholder="Jogador Preto">
+        <button type="button" onclick="createGame()" class="game-button create-button">Criar Jogo</button>
+        <button type="button" onclick="resetGame()" id="reset-game" class="game-button reset-button">Reiniciar Jogo</button>
+    </div>
+    <div id="game-controls">
+        <button type="button" id="player1Start">Start as White</button>
+        <button type="button" id="player2Start" disabled>Start as Black</button>
+        <span id="gameIdDisplay"></span>
+        <span id="gameStatus"></span>
+    </div>
+    <div class="board-container">
+        <div class="board-coordinates">
+            <div class="top-coordinates">
+                <span></span>
+                <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+                <span></span>
+            </div>
+            <div class="left-coordinates">
+                <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+            </div>
+            <div id="chessboard"></div>
+            <div class="right-coordinates">
+                <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+            </div>
+            <div class="bottom-coordinates">
+                <span></span>
+                <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+                <span></span>
+            </div>
+        </div>
+        <div id="gameMessage" class="game-message"></div>
+    </div>
+    <div id="promotionDialog" class="promotion-dialog">
+        <h3>Escolha a promoção:</h3>
+        <div id="promotionOptions"></div>
+    </div>
+    <script>
+
+        let possibleMoves = [];
+        const pieceImages = {
+            'WHITE_PAWN': 'wp.svg',
+            'WHITE_ROOK': 'wr.svg',
+            'WHITE_KNIGHT': 'wn.svg',
+            'WHITE_BISHOP': 'wb.svg',
+            'WHITE_QUEEN': 'wq.svg',
+            'WHITE_KING': 'wk.svg',
+            'BLACK_PAWN': 'bp.svg',
+            'BLACK_ROOK': 'br.svg',
+            'BLACK_KNIGHT': 'bn.svg',
+            'BLACK_BISHOP': 'bb.svg',
+            'BLACK_QUEEN': 'bq.svg',
+            'BLACK_KING': 'bk.svg'
+        };
+        const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+        let currentBoardData = {};
+        let gameId = null;
+        let selectedSquare = null;
+        let playerColor = null;
+        let isWhiteTurn = true;
+        let totalJogadas = 0;
+        let from = "";
+        let to = "";
+        rookWhiteExecutado = false;
+        rookBlackExecutado = false;
+        let checkmate = false;
+
+        document.addEventListener("DOMContentLoaded", function() {  
+            console.log("A página foi carregada completamente.");  
+            resetGame();
+        });
+
+
+        function createGame() {
+            let gameMode = document.getElementById("mode-select").value;
+            const white = document.getElementById("playerWhite").value || "Player1";
+            const black = gameMode === "vsComputer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            document.getElementById('gameMessage').textContent = "";
+            checkmate = false;
+
+            if (gameMode === 'single' || gameMode === 'vsComputer') {
+                playerColor = 'WHITE'; // Jogador controla as brancas
+            }
+
+            console.log("Valor gameMode..", gameMode, "valor playerColor", playerColor);
+            console.log("Criando jogo...");
+            console.log("White:", white, "Black:", black);
+
+            // Limpar estado anterior
+            gameId = null;
+            boardState = {};
+            selectedSquare = null;
+            document.getElementById('chessboard').innerHTML = '';
+            document.getElementById('gameMessage').innerHTML = '';
+
+            fetch('/games', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `playerWhite=${encodeURIComponent(white)}&playerBlack=${encodeURIComponent(black)}`
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("Erro ao criar jogo");
+                return response.json();
+            })
+            .then(data => {
+                console.log("Jogo criado com sucesso:", data);
+                gameId = data.id;
+                isWhiteTurn = data.whiteTurn;
+                currentBoardData = data.boardState;
+                document.getElementById('gameIdDisplay').textContent = `Game ID: ${gameId}`;
+                document.getElementById('gameStatus').textContent = `Status: ${data.status}`;
+                updateTurnButtons();
+                createBoard(JSON.parse(data.boardState));
+                updateGameState(gameId);
+                // Se for vsComputer e começar com pretas, acionar movimento do computador
+                if (gameMode === 'vsComputer' && !isWhiteTurn) {
+                    makeComputerMove();
+                }
+            })
+            .catch(error => {
+                console.error("Erro ao criar jogo:", error);
+                document.getElementById('gameMessage').textContent = "Erro ao criar o jogo.";
+            });
+        }
+
+
+        function resetGame() {
+            rookWhiteExecutado = false;
+            rookBlackExecutado = false;
+            checkmate = false;
+            boardState = {};
+            selectedSquare = null;
+            document.getElementById('chessboard').innerHTML = '';
+            document.getElementById('gameMessage').innerHTML = '';
+            if (!gameId) {
+                document.getElementById('gameStatus').innerText = 'Nenhum jogo ativo para reiniciar.';
+                return;
+            }
+            
+            fetch(`/games/${gameId}/reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(response => {
+                if (!response.ok) throw new Error("Erro ao criar jogo");
+                return response.json();
+            }).then(data => {
+                console.log('Jogo reiniciado:', data);
+                currentBoardData = JSON.parse(data.boardState);
+                isWhiteTurn = data.whiteTurn;
+                createBoard(currentBoardData);
+                updateGameState(gameId);
+                document.getElementById('gameStatus').innerText = 'Jogo reiniciado!';
+            })
+            .catch(error => {
+                console.error('Erro ao reiniciar jogo:', error);
+                document.getElementById('gameStatus').innerText = 'Erro ao reiniciar jogo.';
+            });
+        }
+        
+        function createBoard(boardData) {
+            console.log('createBoard chamado com:', boardData);
+            let board = document.getElementById('chessboard');
+            board.innerHTML = '';
+            currentBoardData = boardData;
+
+            ranks.forEach((row, rowIndex) => {
+                files.forEach((col, colIndex) => {
+                    const pos = col + row;
+                    const square = document.createElement('div');
+                    square.classList.add('square');
+                    square.dataset.pos = pos;
+
+                    const isLight = (colIndex + rowIndex) % 2 === 0;
+                    square.classList.add(isLight ? 'light' : 'dark');
+
+                    const piece = currentBoardData[pos];
+                    if (piece) {
+                        const key = `${piece.color}_${piece.type}`;
+                        const img = document.createElement('img');
+                        img.src = `/img/${pieceImages[key]}?v=${Date.now()}`;
+                        img.width = 48;
+                        img.height = 48;
+                        img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
+                        square.appendChild(img);
+                    }
+                    square.addEventListener('click', () => handleSquareClick(pos));
+                    board.appendChild(square);
+                });
+            });
+            console.log('Tabuleiro renderizado com sucesso');
+        }
+
+        async function makeMove(gameId, moveNotation) {
+            console.log(gameId, "Enviando movimento: " + moveNotation);
+            try {
+                if(checkmate === true){
+                    document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
+                    throw new Error("Jogo encerrado");
+                    return;
+                }
+                const response = await fetch(`http://localhost:8080/games/${gameId}/move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ moveNotation })
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText);
+                }
+                const updatedGame = await response.json();
+                console.log("Movimento realizado:", updatedGame);
+
+                isWhiteTurn = updatedGame.whiteTurn;
+                document.getElementById('gameStatus').textContent = `Status: ${updatedGame.status}`;
+                
+                if (updatedGame.inCheck) {
+                    document.getElementById('gameMessage').textContent = "Xeque! Resolva o xeque.";
+                } else if (updatedGame.checkmate) {
+                    checkmate = true;
+                    document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo encerrado.";
+                } else {
+                    document.getElementById('gameMessage').textContent = "";
+                }
+
+                updateTurnButtons();
+                updateGameState(gameId);
+
+                // Se for modo vsComputer e for a vez das pretas, acionar o computador
+                if (document.getElementById("mode-select").value === "vsComputer" && !isWhiteTurn) {
+                    setTimeout(function() { // Simula uma operação assíncrona
+                         console.log("Operação assíncrona concluída.");
+                                    makeComputerMove(gameId);
+                        }, 2000);
+                    
+                }
+
+                return updatedGame;
+            } catch (error) {
+                console.error("Erro na requisição:", error);
+                document.getElementById('gameMessage').textContent = "Jogador precisa sair do xeque" || "Erro ao realizar o movimento.";
+                throw error;
+            }
+        }
+
+       
+        async function makeComputerMove(gameId) {
+            console.log("Solicitando movimento do computador (inteligente) para gameId:", gameId);
+            try {
+                // const responseGet = await fetch(`http://localhost:8080/games/${gameId}`, {
+                //     method: 'POST',
+                //     headers: { 'Content-Type': 'application/json' },
+                //     body: JSON.stringify({ moveNotation })
+                // });
+                // if (!responseGet.ok) {
+                //     const errorText = await responseGet.text();
+                //     throw new Error(errorText);
+                // }
+                // const updatedGameGet = await responseGet.json();
+                // console.log("Movimento realizado:", updatedGame);
+
+                const responseGet = await fetch(`/games/${gameId}`);
+                const gameData = await responseGet.json();
+
+
+
+                if(gameData.checkmate === true){
+                    document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
+                    throw new Error("Jogo encerrado");
+                }
+                const response = await fetch(`/games/${gameId}/smart-computer-move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) {
+                    throw new Error("Erro ao realizar movimento do computador");
+                }
+                const updatedGame = await response.json();
+                console.log("Movimento do computador realizado:", updatedGame);
+
+                isWhiteTurn = updatedGame.whiteTurn;
+                document.getElementById('gameStatus').textContent = `Status: ${updatedGame.status}`;
+                if (updatedGame.inCheck) {
+                    document.getElementById('gameMessage').textContent = "Xeque! Resolva o xeque.";
+                } else if (updatedGame.checkmate) {
+                    checkmate = true;
+                    document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo encerrado.";
+                } else {
+                    document.getElementById('gameMessage').textContent = "Vez das brancas";
+                }
+
+                updateTurnButtons();
+                updateGameState(gameId);
+            } catch (error) {
+                console.error("Jogo encerrado:", error);
+                document.getElementById('gameMessage').textContent = "Jogo encerrado.";
+            }
+        }
+
+
+        function highlightMoves(moves) {
+            console.log('Destacando movimentos:', moves);
+            document.querySelectorAll('.possible').forEach(square => {
+                square.classList.remove('possible');
+            });
+            moves.forEach(move => {
+                const square = document.querySelector(`.square[data-pos="${move}"]`);
+                if (square) square.classList.add('possible');
+            });
+        }
+
+        async function updateGameState(gameId) {
+            console.log('Atualizando estado do jogo para gameId:', gameId);
+            try {
+                const response = await fetch(`/games/${gameId}`);
+                const gameData = await response.json();
+                console.log('Dados completos do jogo recebidos:', gameData);
+
+                // Atualiza o currentBoardData com o novo estado do tabuleiro
+                currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
+                isWhiteTurn = gameData.whiteTurn;
+                //Movimento da torre preta rook grande
+                if(rookBlackExecutado === false && gameData.blackRookA8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8c8'){
+                    const from = 'a8';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'd8';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement);                    
+                    fromSquare.innerHTML = '';
+                    rookBlackExecutado = true;
+                    console.log("pode realizar o rook preto maior",gameData.lastMove);
+                }
+                //Movimento da torre branca rook grande
+                if(rookWhiteExecutado === false && gameData.whiteRookA1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1c1'){
+                    const from = 'a1';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'd1';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookWhiteExecutado = true;
+                    console.log("pode realizar o rook branco maior",gameData.lastMove);
+                }
+                //Movimento da torre preta rook pequeno
+                if(rookBlackExecutado === false && gameData.blackRookH8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8g8'){
+                    const from = 'h8';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'f8';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookBlackExecutado = true;
+                    console.log("pode realizar o rook preto maior",gameData.lastMove);
+                }
+                //Movimento da torre branca rook pequeno
+                if(rookWhiteExecutado === false && gameData.whiteRookH1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1g1'){
+                    const from = 'h1';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'f1';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookWhiteExecutado = true;
+                    console.log("pode realizar o rook branco menor",gameData.lastMove);
+                }
+
+                // Forçar atualização completa do tabuleiro se necessário
+                if (gameData.lastMove) {
+                    const [from, to] = [gameData.lastMove.slice(0, 2), gameData.lastMove.slice(2, 4)];
+                    updateBoard(from, to, null, null);
+                } else {
+                    createBoard(currentBoardData); // Recria o tabuleiro se não houver último movimento
+                }
+
+                // Atualiza mensagens de status
+                if (gameData.checkmate) {
+                    checkmate = true;
+                    document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo terminado.";
+                    // document.getElementById('reset-game').style.display = 'inline-block';
+                } else if (gameData.inCheck) {
+                    document.getElementById('gameMessage').textContent = "Xeque!";
+                    // document.getElementById('reset-game').style.display = 'none';
+                } else {
+                    document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
+                    // document.getElementById('reset-game').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Erro ao atualizar o estado do jogo:', error);
+                document.getElementById('reset-game').style.display = 'none';
+            }
+        }
+
+        function updateBoard(from, to, rookFrom, rookTo) {
+            if (rookFrom && rookTo) {
+                // Roque
+                const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                const rookFromSquare = document.querySelector(`.square[data-pos="${rookFrom}"]`);
+                const rookToSquare = document.querySelector(`.square[data-pos="${rookTo}"]`);
+
+                if (fromSquare && toSquare && rookFromSquare && rookToSquare) {
+                    const kingElement = fromSquare.querySelector('img');
+                    const rookElement = rookFromSquare.querySelector('img');
+
+                    if (kingElement) {
+                        toSquare.innerHTML = '';
+                        toSquare.appendChild(kingElement);
+                        fromSquare.innerHTML = '';
+                    }
+
+                    if (rookElement) {
+                        rookToSquare.innerHTML = '';
+                        rookToSquare.appendChild(rookElement);
+                        rookFromSquare.innerHTML = '';
+                    }
+
+                    console.log(`Roque atualizado: Rei ${from} -> ${to}, Torre ${rookFrom} -> ${rookTo}`);
+                }
+
+            } else {
+                // Movimento normal (ou en passant)
+                const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+
+                if (!fromSquare || !toSquare) {
+                    console.warn("Erro: fromSquare ou toSquare não encontrados.", from, to);
+                    return;
+                }
+
+                const pieceElement = fromSquare.querySelector('img');
+                const fromPiece = currentBoardData[to]; // posição atualizada do back-end
+                const fromRow = parseInt(from[1]);
+
+                const isEnPassant =
+                    fromPiece &&
+                    fromPiece.type === 'PAWN' &&
+                    from[0] !== to[0] &&            // movimento na diagonal
+                    !currentBoardData[to] &&        // destino estava vazio
+                    (fromPiece.color === 'WHITE' ? fromRow === 5 : fromRow === 4); // linha correta para en passant
+                    console.log(fromPiece.color, `En passant: peão capturado em `,currentBoardData[to],fromRow,isEnPassant);
+                if (isEnPassant) {
+                    const capturedCol = to[0];
+                    const capturedRow = fromRow; // linha original do peão capturado
+                    //const capturedFromRow = 5;
+                    const capturedFromRow = 'g5';
+                    const capturedSquare = document.querySelector(`.square[data-pos="${capturedCol}${capturedRow}"]`);
+                    capturedFromSquare = document.querySelector(`.square[data-pos="${capturedFromRow}"]`);
+                    if (capturedSquare) {
+                        capturedSquare.innerHTML = '';
+                        console.log(`En passant: peão capturado em ${capturedCol}${capturedRow}`);
+                    }
+                    //capturedFromSquare.innerHTML = '';
+                }
+
+                // Executa movimento visual normal
+                if(toSquare){
+                    toSquare.innerHTML = '';
+                }
+                
+                if (pieceElement) toSquare.appendChild(pieceElement);
+                fromSquare.innerHTML = '';
+                console.log(`Tabuleiro atualizado: ${from} -> ${to}`);
+            }
+        }
+
+
+        async function handleSquareClick(pos) {
+            console.log('handleSquareClick chamado para:', pos);
+            console.log('Estado atual - gameId:', gameId, 'playerColor:', playerColor, 'isWhiteTurn:', isWhiteTurn);
+
+            if (!gameId) {
+                document.getElementById('gameMessage').textContent = "Crie um jogo primeiro!";
+                return;
+            }
+
+            if (gameMode === 'multi' && playerColor || gameMode === 'vsComputer' && playerColor) {
+                if (isWhiteTurn && playerColor !== 'WHITE') {
+                    document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
+                    return;
+                }
+                if (!isWhiteTurn && playerColor !== 'BLACK') {
+                    document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as pretas.";
+                    return;
+                }
+            }
+
+            if(checkmate === true){
+                    document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
+                    throw new Error("Jogo encerrado");
+                    return;
+            }
+
+            const piece = currentBoardData[pos];
+            if (piece && isWhiteTurn === (piece.color === 'WHITE')) {
+                console.log('Peça selecionada:', pos, `(${piece.type}, ${piece.color})`);
+                if (selectedSquare) {
+                    const previousSquare = document.querySelector(`.square[data-pos="${selectedSquare}"]`);
+                    if (previousSquare) previousSquare.classList.remove('selected');
+                }
+                selectedSquare = pos;
+                const currentSquare = document.querySelector(`.square[data-pos="${pos}"]`);
+                if (currentSquare) currentSquare.classList.add('selected');
+                possibleMoves = await getPossibleMoves(pos, piece, currentBoardData);
+                highlightMoves(possibleMoves);
+                console.log('Exibindo movimentos possíveis para', pos, ':', possibleMoves);
+            } else if (selectedSquare && possibleMoves.includes(pos)) {
+                const moveNotationBase = selectedSquare + pos;
+                const fromPiece = currentBoardData[selectedSquare];
+                const toRow = parseInt(pos[1]);
+
+                // Verifica se é uma promoção
+                if (fromPiece.type === 'PAWN' && 
+                    ((fromPiece.color === 'WHITE' && toRow === 8) || 
+                    (fromPiece.color === 'BLACK' && toRow === 1))) {
+                    await showPromotionDialog(moveNotationBase, fromPiece.color);
+                } else {
+                    const moveNotation = generateNotation(selectedSquare, pos);
+                    console.log('Movendo de', selectedSquare, 'para', pos, ':', moveNotation);
+                    await makeMove(gameId, moveNotation);
+                    const previousSquare = document.querySelector(`.square[data-pos="${selectedSquare}"]`);
+                    if (previousSquare) previousSquare.classList.remove('selected');
+                    selectedSquare = null;
+                    possibleMoves = [];
+                    clearHighlights();
+                    document.getElementById('gameMessage').textContent = "";
+                }
+            } else {
+                console.log('Não é sua vez ou peça inválida');
+                if (selectedSquare) {
+                    const previousSquare = document.querySelector(`.square[data-pos="${selectedSquare}"]`);
+                    if (previousSquare) previousSquare.classList.remove('selected');
+                }
+                selectedSquare = null;
+                possibleMoves = [];
+                clearHighlights();
+            }
+        }
+
+        function clearHighlights() {
+            document.querySelectorAll('.possible').forEach(square => square.classList.remove('possible'));
+        }
+
+        function updateTurnButtons() {
+            const whiteButton = document.getElementById('player1Start');
+            const blackButton = document.getElementById('player2Start');
+            whiteButton.disabled = !isWhiteTurn;
+            blackButton.disabled = isWhiteTurn;
+            whiteButton.textContent = isWhiteTurn ? 'White Turn' : 'White Waiting';
+            blackButton.textContent = isWhiteTurn ? 'Black Waiting' : 'Black Turn';
+        }
+
+        async function getPossibleMoves(from, piece, board) {
+            const moves = [];
+            const fromCol = from[0];
+            const fromRow = parseInt(from[1]);
+            const colIndex = files.indexOf(fromCol);
+            const direction = piece.color === 'WHITE' ? 1 : -1;
+
+            switch (piece.type) {
+                case 'PAWN':
+                    // Movimento para frente (uma casa)
+                    const oneStep = fromCol + (fromRow + direction);
+                    if (!board[oneStep] && fromRow + direction <= 8 && fromRow + direction >= 1) {
+                        moves.push(oneStep);
+                    }
+
+                    // Movimento para frente (duas casas)
+                    if ((piece.color === 'WHITE' && fromRow === 2) || (piece.color === 'BLACK' && fromRow === 7)) {
+                        const twoStep = fromCol + (fromRow + 2 * direction);
+                        if (!board[oneStep] && !board[twoStep] && fromRow + 2 * direction <= 8 && fromRow + 2 * direction >= 1) {
+                            moves.push(twoStep);
+                        }
+                    }
+
+                    // Capturas diagonais padrão
+                    const leftCol = files[colIndex - 1];
+                    const rightCol = files[colIndex + 1];
+                    if (leftCol) {
+                        const leftCapture = leftCol + (fromRow + direction);
+                        if (board[leftCapture] && board[leftCapture].color !== piece.color) {
+                            moves.push(leftCapture);
+                        }
+                    }
+                    if (rightCol) {
+                        const rightCapture = rightCol + (fromRow + direction);
+                        if (board[rightCapture] && board[rightCapture].color !== piece.color) {
+                            moves.push(rightCapture);
+                        }
+                    }
+
+                    // Captura en passant
+                    try {
+                        const response = await fetch(`/games/${gameId}`);
+                        const gameData = await response.json();
+                        const lastMove = gameData.lastMove;
+                        if (lastMove && lastMove.length >= 4) {
+                            const lastFrom = lastMove.substring(0, 2); // ex.: e7
+                            const lastTo = lastMove.substring(2, 4);   // ex.: e5
+                            const lastFromRow = parseInt(lastFrom[1]);
+                            const lastToRow = parseInt(lastTo[1]);
+                            const lastToCol = lastTo[0];
+
+                            // Verifica se o último movimento foi um avanço de duas casas do adversário
+                            if (Math.abs(lastFromRow - lastToRow) === 2 &&
+                                board[lastTo] && board[lastTo].type === 'PAWN' &&
+                                board[lastTo].color !== piece.color) {
+                                // Verifica se o peão adversário está ao lado do peão atual
+                                if ((lastToCol === files[colIndex - 1] || lastToCol === files[colIndex + 1]) &&
+                                    lastToRow === fromRow) {
+                                    // Casa de captura en passant (ex.: e6 para brancas, e3 para pretas)
+                                    const enPassantCapture = lastToCol + (fromRow + direction);
+                                    moves.push(enPassantCapture);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Erro ao verificar en passant:', error);
+                    }
+
+                    break;
+
+                // ... (outras peças permanecem inalteradas)
+                case 'KNIGHT':
+                    const knightMoves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+                    knightMoves.forEach(([r, c]) => {
+                        const newCol = files[colIndex + c];
+                        const newRow = fromRow + r;
+                        if (newCol && newRow >= 1 && newRow <= 8) {
+                            const pos = newCol + newRow;
+                            if (!board[pos] || board[pos].color !== piece.color) moves.push(pos);
+                        }
+                    });
+                    break;
+
+                case 'KING':
+                    for (let r = -1; r <= 1; r++) {
+                        for (let c = -1; c <= 1; c++) {
+                            if (r === 0 && c === 0) continue;
+                            const newCol = files[colIndex + c];
+                            const newRow = fromRow + r;
+                            if (newCol && newRow >= 1 && newRow <= 8) {
+                                const pos = newCol + newRow;
+                                if (!board[pos] || board[pos].color !== piece.color) moves.push(pos);
+                            }
+                        }
+                    }
+                    if ((isWhiteTurn && piece.color === 'WHITE') || (!isWhiteTurn && piece.color === 'BLACK')) {
+                        try {
+                            const res = await fetch(`/games/${gameId}/castle-options`);
+                            const castle = await res.json();
+                            if (castle.kingside) moves.push(piece.color === 'WHITE' ? 'g1' : 'g8');
+                            if (castle.queenside) moves.push(piece.color === 'WHITE' ? 'c1' : 'c8');
+                        } catch (e) {
+                            console.error("Erro ao buscar roques:", e);
+                        }
+                    }
+                    break;
+
+                case 'ROOK':
+                case 'BISHOP':
+                case 'QUEEN':
+                    const directions = {
+                        'ROOK': [[0, 1], [0, -1], [1, 0], [-1, 0]],
+                        'BISHOP': [[1, 1], [-1, 1], [1, -1], [-1, -1]],
+                        'QUEEN': [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]]
+                    }[piece.type];
+
+                    directions.forEach(([cDir, rDir]) => {
+                        let newColIndex = colIndex;
+                        let newRow = fromRow;
+                        while (true) {
+                            newColIndex += cDir;
+                            newRow += rDir;
+                            const newCol = files[newColIndex];
+                            if (!newCol || newRow < 1 || newRow > 8) break;
+                            const pos = newCol + newRow;
+                            if (!board[pos]) {
+                                moves.push(pos);
+                            } else {
+                                if (board[pos].color !== piece.color) moves.push(pos);
+                                break;
+                            }
+                        }
+                    });
+                    break;
+            }
+
+            return moves;
+        }
+
+
+        async function showPromotionDialog(moveNotationBase, color) {
+            const dialog = document.getElementById('promotionDialog');
+            const optionsContainer = document.getElementById('promotionOptions');
+            optionsContainer.innerHTML = '';
+
+            const promotionOptions = [
+                { type: 'QUEEN', char: 'q' },
+                { type: 'ROOK', char: 'r' },
+                { type: 'BISHOP', char: 'b' },
+                { type: 'KNIGHT', char: 'n' }
+            ];
+
+            promotionOptions.forEach(option => {
+                const div = document.createElement('div');
+                div.classList.add('promotion-option');
+                const img = document.createElement('img');
+                img.src = `/img/${pieceImages[`${color}_${option.type}`]}`;
+                img.alt = option.type;
+                div.appendChild(img);
+                div.addEventListener('click', async () => {
+                    const moveNotation = moveNotationBase + option.char;
+                    console.log('Promoção selecionada:', moveNotation);
+                    await makeMove(gameId, moveNotation);
+                    dialog.style.display = 'none';
+                    const previousSquare = document.querySelector(`.square[data-pos="${selectedSquare}"]`);
+                    if (previousSquare) previousSquare.classList.remove('selected');
+                    previousSquare.innerHTML = '';
+                    previousSquare.appendChild(img);
+                    selectedSquare = null;
+                    possibleMoves = [];
+                    clearHighlights();
+                    document.getElementById('gameMessage').textContent = "";
+                });
+                optionsContainer.appendChild(div);
+            });
+
+            dialog.style.display = 'block';
+
+        }
+
+
+        function generateNotation(from, to) {
+            const fromPiece = currentBoardData[from];
+            if (!fromPiece) return null;
+
+            const isCapture = currentBoardData[to] || (fromPiece.type === 'PAWN' && from[0] !== to[0]);
+            const isCastling = fromPiece.type === 'KING' && Math.abs(from.charCodeAt(0) - to.charCodeAt(0)) === 2;
+
+            if (isCastling) {
+                //return to[0] === 'g' ? 'O-O' : 'O-O-O';
+                return from + to;
+            }
+
+            // Sempre retorna no formato "from-to" (ex.: "b8c6")
+            let notation = from + to;
+
+            return notation;
+        }
+
+
+        document.getElementById('mode-select').addEventListener('change', (e) => {
+            gameMode = e.target.value;
+            console.log('Modo de jogo alterado para:', gameMode);
+        });
+
+        document.getElementById('player1Start').addEventListener('click', () => {
+            if (!gameId) {
+                if (gameMode === 'multi') playerColor = 'WHITE';
+                if (gameMode === 'single') playerColor = 'WHITE'; // 👈 adicionar isso
+                createGame();
+            }
+        });
+
+        document.getElementById('player2Start').addEventListener('click', () => {
+            if (!gameId) {
+                if (gameMode === 'multi') playerColor = 'BLACK';
+                if (gameMode === 'single') playerColor = 'BLACK'; // 👈 adicionar isso se quiser testar com pretas
+                createGame();
+            }
+        });
+
+    
+
+    </script>
+</body>
+</html>
