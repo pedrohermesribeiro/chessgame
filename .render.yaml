@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: chessgame
+    env: java
+    buildCommand: "./mvnw clean install"
+    startCommand: "java -jar target/chessgame-0.0.1-SNAPSHOT.jar"
+    envVars:
+      - key: PORT
+        value: 8080
