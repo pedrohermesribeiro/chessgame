@@ -240,7 +240,7 @@
                     throw new Error("Jogo encerrado");
                     return;
                 }
-                const response = await fetch(`http://localhost:8080/games/${gameId}/move`, {
+                const response = await fetch(`/games/${gameId}/move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ moveNotation })
