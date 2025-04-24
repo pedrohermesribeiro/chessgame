@@ -6,9 +6,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class HomeController {
-
     @GetMapping("/")
     public String home() {
-        return "index"; // Refere-se a index.html em src/main/resources/static/
+        return "redirect:/index.html"; // Redireciona para o arquivo estático
     }
 }
