@@ -62,6 +62,14 @@ public class GameDTO {
 		this.blackRookA8Moved = blackRookA8Moved;
 		this.blackRookH8Moved = blackRookH8Moved;
 	}
+
+	public boolean isWhiteTurn() {
+		return whiteTurn;
+	}
+
+	public void setWhiteTurn(boolean whiteTurn) {
+		this.whiteTurn = whiteTurn;
+	}
     
     
 }

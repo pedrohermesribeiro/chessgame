@@ -1,12 +1,12 @@
 package com.chess.chessgame.controller;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,10 +17,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.chess.chessgame.dto.BoardStateDTO;
 import com.chess.chessgame.dto.CastleOptionsDTO;
+import com.chess.chessgame.dto.GameDTO;
 import com.chess.chessgame.dto.GameRequestDTO;
 import com.chess.chessgame.dto.MoveRequest; // Importar a nova classe
 import com.chess.chessgame.model.Game;
 import com.chess.chessgame.model.Piece;
+import com.chess.chessgame.model.enums.GameStatus;
 import com.chess.chessgame.model.enums.PieceColor;
 import com.chess.chessgame.service.GameService;
 
@@ -153,6 +155,18 @@ public class GameController {
             return ResponseEntity.badRequest().body(null);
         }
     }
+    
+    @PostMapping("/{id}/hard-computer-move")
+    public ResponseEntity<GameDTO> makeHardMove(@PathVariable Long id) {
+        Game game = gameService.makeHardAIMove(id);
+        Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
+        return ResponseEntity.ok(new GameDTO(game.getPlayerWhite(),game.getPlayerBlack(),
+        		game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
+        		game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
+        		game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
+        		game.isBlackRookA8Moved(),game.isBlackRookH8Moved()));
+    }
+
 
     
     @GetMapping("/{id}/board")

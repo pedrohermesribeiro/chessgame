@@ -31,6 +31,7 @@
                 <option value="multi">Multi Browser (Two Players)</option>
                 <option value="single">Single Browser (One Player)</option>
                 <option value="vsComputer">Player vs. Computer</option>
+                <option value="hard-computer">Player vs Hard Computer</option>
             </select>
         <label for="player-color">Cor:</label>
         <select id="player-color">
@@ -114,7 +115,7 @@
 
 
         function createGame() {
-            let gameMode = document.getElementById("mode-select").value;
+           /* let gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
             const black = gameMode === "vsComputer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('gameMessage').textContent = "";
@@ -125,6 +126,21 @@
             }
 
             console.log("Valor gameMode..", gameMode, "valor playerColor", playerColor);
+            console.log("Criando jogo...");
+            console.log("White:", white, "Black:", black);*/
+
+
+            gameMode = document.getElementById("mode-select").value;
+            const white = document.getElementById("playerWhite").value || "Player1";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            document.getElementById('gameMessage').textContent = "";
+            checkmate = false;
+
+            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer') {
+                playerColor = 'WHITE'; // Jogador controla as brancas
+            }
+
+            console.log("Valor gameMode:", gameMode, "valor playerColor:", playerColor);
             console.log("Criando jogo...");
             console.log("White:", white, "Black:", black);
 
@@ -155,8 +171,8 @@
                 createBoard(JSON.parse(data.boardState));
                 updateGameState(gameId);
                 // Se for vsComputer e começar com pretas, acionar movimento do computador
-                if (gameMode === 'vsComputer' && !isWhiteTurn) {
-                    makeComputerMove();
+                if ((gameMode === 'vsComputer' || gameMode === 'hard-computer') && !isWhiteTurn) {
+                    makeComputerMove(gameId);
                 }
             })
             .catch(error => {
@@ -268,12 +284,20 @@
                 updateGameState(gameId);
 
                 // Se for modo vsComputer e for a vez das pretas, acionar o computador
-                if (document.getElementById("mode-select").value === "vsComputer" && !isWhiteTurn) {
+                /*if (document.getElementById("mode-select").value === "vsComputer" && !isWhiteTurn) {
                     setTimeout(function() { // Simula uma operação assíncrona
                          console.log("Operação assíncrona concluída.");
                                     makeComputerMove(gameId);
                         }, 2000);
                     
+                }*/
+
+                // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
+                if ((gameMode === "vsComputer" || gameMode === "hard-computer") && !isWhiteTurn) {
+                    setTimeout(() => {
+                        console.log("Acionando movimento do computador após jogada do jogador.");
+                        makeComputerMove(gameId);
+                    }, gameMode === "hard-computer" ? 3000 : 2000); // Mais tempo para hard-computer
                 }
 
                 return updatedGame;
@@ -288,18 +312,6 @@
         async function makeComputerMove(gameId) {
             console.log("Solicitando movimento do computador (inteligente) para gameId:", gameId);
             try {
-                // const responseGet = await fetch(`http://localhost:8080/games/${gameId}`, {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/json' },
-                //     body: JSON.stringify({ moveNotation })
-                // });
-                // if (!responseGet.ok) {
-                //     const errorText = await responseGet.text();
-                //     throw new Error(errorText);
-                // }
-                // const updatedGameGet = await responseGet.json();
-                // console.log("Movimento realizado:", updatedGame);
-
                 const responseGet = await fetch(`/games/${gameId}`);
                 const gameData = await responseGet.json();
 
@@ -308,8 +320,22 @@
                 if(gameData.checkmate === true){
                     document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
                     throw new Error("Jogo encerrado");
+                    return;
                 }
-                const response = await fetch(`/games/${gameId}/smart-computer-move`, {
+
+
+                let endpoint;
+                if (gameMode === "vsComputer") {
+                    endpoint = `/games/${gameId}/smart-computer-move`;
+                } else if (gameMode === "hard-computer") {
+                    endpoint = `/games/${gameId}/hard-computer-move`;
+                } else {
+                    console.log("Modo não suporta movimento do computador:", gameMode);
+                    return;
+                }
+
+
+                const response = await fetch(`/games/${gameId}/hard-computer-move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -518,7 +544,18 @@
                 return;
             }
 
-            if (gameMode === 'multi' && playerColor || gameMode === 'vsComputer' && playerColor) {
+           /* if (gameMode === 'multi' && playerColor || gameMode === 'vsComputer' && playerColor) {
+                if (isWhiteTurn && playerColor !== 'WHITE') {
+                    document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
+                    return;
+                }
+                if (!isWhiteTurn && playerColor !== 'BLACK') {
+                    document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as pretas.";
+                    return;
+                }
+            }*/
+
+            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer') && playerColor) {
                 if (isWhiteTurn && playerColor !== 'WHITE') {
                     document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
                     return;

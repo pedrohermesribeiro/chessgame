@@ -31,6 +31,7 @@
                 <option value="multi">Multi Browser (Two Players)</option>
                 <option value="single">Single Browser (One Player)</option>
                 <option value="vsComputer">Player vs. Computer</option>
+                <option value="hard-computer">Player vs Hard Computer</option>
             </select>
         <label for="player-color">Cor:</label>
         <select id="player-color">
@@ -114,17 +115,17 @@
 
 
         function createGame() {
-            let gameMode = document.getElementById("mode-select").value;
+            gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('gameMessage').textContent = "";
             checkmate = false;
 
-            if (gameMode === 'single' || gameMode === 'vsComputer') {
+            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer') {
                 playerColor = 'WHITE'; // Jogador controla as brancas
             }
 
-            console.log("Valor gameMode..", gameMode, "valor playerColor", playerColor);
+            console.log("Valor gameMode:", gameMode, "valor playerColor:", playerColor);
             console.log("Criando jogo...");
             console.log("White:", white, "Black:", black);
 
@@ -155,8 +156,8 @@
                 createBoard(JSON.parse(data.boardState));
                 updateGameState(gameId);
                 // Se for vsComputer e começar com pretas, acionar movimento do computador
-                if (gameMode === 'vsComputer' && !isWhiteTurn) {
-                    makeComputerMove();
+                if ((gameMode === 'vsComputer' || gameMode === 'hard-computer') && !isWhiteTurn) {
+                    makeComputerMove(gameId);
                 }
             })
             .catch(error => {
@@ -267,13 +268,12 @@
                 updateTurnButtons();
                 updateGameState(gameId);
 
-                // Se for modo vsComputer e for a vez das pretas, acionar o computador
-                if (document.getElementById("mode-select").value === "vsComputer" && !isWhiteTurn) {
-                    setTimeout(function() { // Simula uma operação assíncrona
-                         console.log("Operação assíncrona concluída.");
-                                    makeComputerMove(gameId);
-                        }, 2000);
-                    
+                // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
+                if ((gameMode === "vsComputer" || gameMode === "hard-computer") && !isWhiteTurn) {
+                    setTimeout(() => {
+                        console.log("Acionando movimento do computador após jogada do jogador.");
+                        makeComputerMove(gameId);
+                    }, gameMode === "hard-computer" ? 3000 : 2000); // Mais tempo para hard-computer
                 }
 
                 return updatedGame;
@@ -285,36 +285,34 @@
         }
 
        
-        async function makeComputerMove(gameId) {
-            console.log("Solicitando movimento do computador (inteligente) para gameId:", gameId);
-            try {
-                // const responseGet = await fetch(`http://localhost:8080/games/${gameId}`, {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/json' },
-                //     body: JSON.stringify({ moveNotation })
-                // });
-                // if (!responseGet.ok) {
-                //     const errorText = await responseGet.text();
-                //     throw new Error(errorText);
-                // }
-                // const updatedGameGet = await responseGet.json();
-                // console.log("Movimento realizado:", updatedGame);
 
+        let isProcessing = false; // Nova variável para controlar o estado de processamento
+
+        async function makeComputerMove(gameId) {
+            if (isProcessing) return; // Evita chamadas concorrentes
+            isProcessing = true;
+            document.getElementById('gameMessage').textContent = "Computador pensando...";
+            document.getElementById('chessboard').style.pointerEvents = 'none'; // Desabilita cliques no tabuleiro
+
+            console.log("Solicitando movimento do computador para gameId:", gameId);
+            try {
                 const responseGet = await fetch(`/games/${gameId}`);
                 const gameData = await responseGet.json();
 
-
-
-                if(gameData.checkmate === true){
+                if (gameData.checkmate === true) {
                     document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
-                    throw new Error("Jogo encerrado");
+                    isProcessing = false;
+                    document.getElementById('chessboard').style.pointerEvents = 'auto';
+                    return;
                 }
-                const response = await fetch(`/games/${gameId}/smart-computer-move`, {
+
+                let endpoint = gameMode === "vsComputer" ? `/games/${gameId}/smart-computer-move` : `/games/${gameId}/hard-computer-move`;
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
                 if (!response.ok) {
-                    throw new Error("Erro ao realizar movimento do computador");
+                    throw new Error(`Erro ao realizar movimento do computador: ${response.statusText}`);
                 }
                 const updatedGame = await response.json();
                 console.log("Movimento do computador realizado:", updatedGame);
@@ -333,11 +331,13 @@
                 updateTurnButtons();
                 updateGameState(gameId);
             } catch (error) {
-                console.error("Jogo encerrado:", error);
-                document.getElementById('gameMessage').textContent = "Jogo encerrado.";
+                console.error("Erro no movimento do computador:", error);
+                document.getElementById('gameMessage').textContent = `Erro: ${error.message}`;
+            } finally {
+                isProcessing = false;
+                document.getElementById('chessboard').style.pointerEvents = 'auto'; // Reabilita cliques
             }
         }
-
 
         function highlightMoves(moves) {
             console.log('Destacando movimentos:', moves);
@@ -510,6 +510,13 @@
 
 
         async function handleSquareClick(pos) {
+
+            if (isProcessing) {
+                document.getElementById('gameMessage').textContent = "Aguarde o computador terminar!";
+                return;
+            }
+
+
             console.log('handleSquareClick chamado para:', pos);
             console.log('Estado atual - gameId:', gameId, 'playerColor:', playerColor, 'isWhiteTurn:', isWhiteTurn);
 
@@ -518,7 +525,8 @@
                 return;
             }
 
-            if (gameMode === 'multi' && playerColor || gameMode === 'vsComputer' && playerColor) {
+      
+            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer') && playerColor) {
                 if (isWhiteTurn && playerColor !== 'WHITE') {
                     document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
                     return;
