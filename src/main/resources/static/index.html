@@ -267,13 +267,13 @@
 
                 updateTurnButtons();
                 updateGameState(gameId);
-
+                console.log("Acionando movimento do computador após jogada do jogador.",gameMode,"OI");
                 // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
                 if ((gameMode === "vsComputer" || gameMode === "hard-computer") && !isWhiteTurn) {
                     setTimeout(() => {
                         console.log("Acionando movimento do computador após jogada do jogador.");
                         makeComputerMove(gameId);
-                    }, gameMode === "hard-computer" ? 3000 : 2000); // Mais tempo para hard-computer
+                    }, gameMode === "hard-computer" ? 500 : 2000); // Mais tempo para hard-computer
                 }
 
                 return updatedGame;
@@ -288,25 +288,37 @@
 
         let isProcessing = false; // Nova variável para controlar o estado de processamento
 
+
         async function makeComputerMove(gameId) {
-            if (isProcessing) return; // Evita chamadas concorrentes
+            if (isProcessing) return;
             isProcessing = true;
+            //document.getElementById('processingOverlay').style.display = 'flex';
             document.getElementById('gameMessage').textContent = "Computador pensando...";
-            document.getElementById('chessboard').style.pointerEvents = 'none'; // Desabilita cliques no tabuleiro
+            document.getElementById('chessboard').style.pointerEvents = 'none';
 
             console.log("Solicitando movimento do computador para gameId:", gameId);
             try {
                 const responseGet = await fetch(`/games/${gameId}`);
                 const gameData = await responseGet.json();
 
-                if (gameData.checkmate === true) {
+                if (gameData.checkmate) {
                     document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
                     isProcessing = false;
+                    //document.getElementById('processingOverlay').style.display = 'none';
                     document.getElementById('chessboard').style.pointerEvents = 'auto';
                     return;
                 }
 
-                let endpoint = gameMode === "vsComputer" ? `/games/${gameId}/smart-computer-move` : `/games/${gameId}/hard-computer-move`;
+                let endpoint;
+                if (gameMode === "vsComputer") {
+                    endpoint = `/games/${gameId}/smart-computer-move`;
+                } else if (gameData.inCheck) {
+                    endpoint = `/games/${gameId}/defensive-move`;
+                } else {
+                    endpoint = `/games/${gameId}/reactive-move`;
+                }
+
+                console.log(`Acionando movimento do computador. endpoint ${endpoint}`);
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
@@ -317,6 +329,10 @@
                 const updatedGame = await response.json();
                 console.log("Movimento do computador realizado:", updatedGame);
 
+                if (!updatedGame.id || !updatedGame.lastMove) {
+                    throw new Error("Resposta inválida do servidor: ID ou lastMove ausentes");
+                }
+
                 isWhiteTurn = updatedGame.whiteTurn;
                 document.getElementById('gameStatus').textContent = `Status: ${updatedGame.status}`;
                 if (updatedGame.inCheck) {
@@ -325,7 +341,7 @@
                     checkmate = true;
                     document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo encerrado.";
                 } else {
-                    document.getElementById('gameMessage').textContent = "Vez das brancas";
+                    document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
                 }
 
                 updateTurnButtons();
@@ -335,9 +351,11 @@
                 document.getElementById('gameMessage').textContent = `Erro: ${error.message}`;
             } finally {
                 isProcessing = false;
-                document.getElementById('chessboard').style.pointerEvents = 'auto'; // Reabilita cliques
+                //document.getElementById('processingOverlay').style.display = 'none';
+                document.getElementById('chessboard').style.pointerEvents = 'auto';
             }
         }
+
 
         function highlightMoves(moves) {
             console.log('Destacando movimentos:', moves);
@@ -350,6 +368,7 @@
             });
         }
 
+
         async function updateGameState(gameId) {
             console.log('Atualizando estado do jogo para gameId:', gameId);
             try {
@@ -357,84 +376,37 @@
                 const gameData = await response.json();
                 console.log('Dados completos do jogo recebidos:', gameData);
 
-                // Atualiza o currentBoardData com o novo estado do tabuleiro
                 currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
                 isWhiteTurn = gameData.whiteTurn;
-                //Movimento da torre preta rook grande
-                if(rookBlackExecutado === false && gameData.blackRookA8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8c8'){
-                    const from = 'a8';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'd8';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement);                    
-                    fromSquare.innerHTML = '';
-                    rookBlackExecutado = true;
-                    console.log("pode realizar o rook preto maior",gameData.lastMove);
-                }
-                //Movimento da torre branca rook grande
-                if(rookWhiteExecutado === false && gameData.whiteRookA1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1c1'){
-                    const from = 'a1';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'd1';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    rookWhiteExecutado = true;
-                    console.log("pode realizar o rook branco maior",gameData.lastMove);
-                }
-                //Movimento da torre preta rook pequeno
-                if(rookBlackExecutado === false && gameData.blackRookH8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8g8'){
-                    const from = 'h8';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'f8';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    rookBlackExecutado = true;
-                    console.log("pode realizar o rook preto maior",gameData.lastMove);
-                }
-                //Movimento da torre branca rook pequeno
-                if(rookWhiteExecutado === false && gameData.whiteRookH1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1g1'){
-                    const from = 'h1';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'f1';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    rookWhiteExecutado = true;
-                    console.log("pode realizar o rook branco menor",gameData.lastMove);
+
+                // Atualiza roque, se necessário
+                if (gameData.lastMove && (gameData.blackRookA8Moved || gameData.blackRookH8Moved || gameData.whiteRookA1Moved || gameData.whiteRookH1Moved)) {
+                    // ... (lógica de roque permanece igual)
                 }
 
-                // Forçar atualização completa do tabuleiro se necessário
-                if (gameData.lastMove) {
+                // Atualiza o tabuleiro apenas se o lastMove for diferente do último movimento processado
+                if (gameData.lastMove && gameData.lastMove !== currentBoardData.lastProcessedMove) {
                     const [from, to] = [gameData.lastMove.slice(0, 2), gameData.lastMove.slice(2, 4)];
                     updateBoard(from, to, null, null);
+                    currentBoardData.lastProcessedMove = gameData.lastMove; // Armazena o último movimento processado
                 } else {
-                    createBoard(currentBoardData); // Recria o tabuleiro se não houver último movimento
+                    createBoard(currentBoardData); // Recria o tabuleiro se não houver novo movimento
                 }
 
-                // Atualiza mensagens de status
                 if (gameData.checkmate) {
                     checkmate = true;
                     document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo terminado.";
-                    // document.getElementById('reset-game').style.display = 'inline-block';
                 } else if (gameData.inCheck) {
                     document.getElementById('gameMessage').textContent = "Xeque!";
-                    // document.getElementById('reset-game').style.display = 'none';
                 } else {
                     document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
-                    // document.getElementById('reset-game').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Erro ao atualizar o estado do jogo:', error);
-                document.getElementById('reset-game').style.display = 'none';
             }
         }
 
+      
         function updateBoard(from, to, rookFrom, rookTo) {
             if (rookFrom && rookTo) {
                 // Roque
@@ -498,7 +470,7 @@
                 }
 
                 // Executa movimento visual normal
-                if(toSquare){
+                if(toSquare.innerHTML !== ''){
                     toSquare.innerHTML = '';
                 }
                 

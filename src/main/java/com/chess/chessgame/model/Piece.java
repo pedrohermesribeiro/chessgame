@@ -7,14 +7,16 @@ public class Piece {
 
     private PieceType type;
     private PieceColor color;
+    private Integer valuePiece;
 
     public Piece() {
         // Construtor padrão necessário para deserialização do Jackson
     }
 
-    public Piece(PieceType type, PieceColor color) {
+    public Piece(PieceType type, PieceColor color, Integer valuePiece) {
         this.type = type;
         this.color = color;
+        this.valuePiece = valuePiece;
     }
 
     public PieceType getType() {
@@ -32,4 +34,14 @@ public class Piece {
     public void setColor(PieceColor color) {
         this.color = color;
     }
+
+	public Integer getValuePiece() {
+		return valuePiece;
+	}
+
+	public void setValuePiece(Integer valuePiece) {
+		this.valuePiece = valuePiece;
+	}
+    
+    
 }

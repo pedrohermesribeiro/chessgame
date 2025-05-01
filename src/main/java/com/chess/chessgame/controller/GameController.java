@@ -1,7 +1,8 @@
+
+
 package com.chess.chessgame.controller;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -22,7 +23,6 @@ import com.chess.chessgame.dto.GameRequestDTO;
 import com.chess.chessgame.dto.MoveRequest; // Importar a nova classe
 import com.chess.chessgame.model.Game;
 import com.chess.chessgame.model.Piece;
-import com.chess.chessgame.model.enums.GameStatus;
 import com.chess.chessgame.model.enums.PieceColor;
 import com.chess.chessgame.service.GameService;
 
@@ -102,11 +102,6 @@ public class GameController {
         response.put("blackKingMoved", game.isBlackKingMoved());
         response.put("blackRookA8Moved", game.isBlackRookA8Moved());
         response.put("blackRookH8Moved", game.isBlackRookH8Moved());
-        
-
-        
-        // Tabuleiro desserializado
-        //response.put("board", gameService.deserializeBoardState(game.getBoardState()));
 
         return ResponseEntity.ok(response);
     }
@@ -116,10 +111,6 @@ public class GameController {
     @GetMapping("/{id}/castle-options")
     public ResponseEntity<CastleOptionsDTO> getCastleOptions(@PathVariable Long id) {
         Game optionalGame = gameService.getGame(id).get();
-        /*if (optionalGame ) {
-            return ResponseEntity.notFound().build();
-        }*/
-
         Game game = optionalGame;
         Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
         PieceColor color = game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK;
@@ -160,11 +151,56 @@ public class GameController {
     public ResponseEntity<GameDTO> makeHardMove(@PathVariable Long id) {
         Game game = gameService.makeHardAIMove(id);
         Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
-        return ResponseEntity.ok(new GameDTO(game.getPlayerWhite(),game.getPlayerBlack(),
+        return ResponseEntity.ok(new GameDTO(game.getId(), game.getPlayerWhite(),game.getPlayerBlack(),
         		game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
         		game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
         		game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
         		game.isBlackRookA8Moved(),game.isBlackRookH8Moved()));
+    }
+    
+    @PostMapping("/{gameId}/capture-move")
+    public GameDTO makeCaptureMove(@PathVariable Long gameId) {
+        return gameService.getGameDTO(gameId);
+    }
+
+    @PostMapping("/{id}/defensive-move")
+    public ResponseEntity<GameDTO> makeDefensiveMove(@PathVariable Long id) {
+        System.out.println("Iniciando makeDefensiveMove para gameId: " + id);
+        Game game = gameService.makeDefensiveMove(id);
+        GameDTO gameDTO = new GameDTO(game.getId(), game.getPlayerWhite(),game.getPlayerBlack(),
+        		game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
+        		game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
+        		game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
+        		game.isBlackRookA8Moved(),game.isBlackRookH8Moved());
+        System.out.println("GameDTO criado: id=" + gameDTO.getId() + ", lastMove=" + gameDTO.getLastMove());
+        return ResponseEntity.ok(gameDTO);
+    }
+
+    @PostMapping("/{gameId}/reactive-move")
+    public GameDTO makeReactiveMove(@PathVariable Long gameId) {
+    	
+    	Game game = gameService.makeReactiveMove(gameId);
+        Map<String, Piece> board = gameService.desearilizeState(game.getBoardState());
+        GameDTO dto = new GameDTO();
+        
+           dto.setId(game.getId());
+           dto.setPlayerWhite(game.getPlayerWhite());
+           dto.setPlayerBlack(game.getPlayerBlack());
+           dto.setWhiteTurn(game.isWhiteTurn());
+           dto.setStatus(game.getStatus());
+           dto.setLastMove(game.getLastMove());
+           dto.setInCheck(game.isInCheck());
+           dto.setCheckmate(game.isCheckmate());
+           dto.setBoard(board);
+           dto.setBoardStateHistory(game.getBoardStateHistory());
+           dto.setWhiteKingMoved(game.isWhiteKingMoved());
+           dto.setWhiteRookA1Moved(game.isWhiteRookA1Moved());
+           dto. setWhiteRookH1Moved(game.isWhiteRookH1Moved());
+           dto.setBlackKingMoved(game.isBlackKingMoved());
+           dto.setBlackRookA8Moved(game.isBlackRookA8Moved());
+           dto.setBlackRookH8Moved(game.isBlackRookH8Moved());
+           
+           return dto;
     }
 
 
