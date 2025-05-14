@@ -276,3 +276,75 @@ button:disabled {
     width: 40px;
     height: 40px;
 }
+
+
+
+/* Tablets (até 1024px) */
+@media (max-width: 1024px) {
+    #chessboard {
+        grid-template-columns: repeat(8, 50px);
+        grid-template-rows: repeat(8, 50px);
+        width: 400px;
+        height: 400px;
+    }
+
+    .top-coordinates span,
+    .bottom-coordinates span,
+    .left-coordinates span,
+    .right-coordinates span {
+        width: 50px;
+        height: 25px;
+        line-height: 25px;
+        font-size: 11px;
+    }
+
+    .board-coordinates {
+        grid-template-columns: 25px 400px 25px;
+        grid-template-rows: 25px 400px 25px;
+    }
+}
+
+/* Celulares (até 600px) */
+@media (max-width: 600px) {
+    body {
+        padding: 10px;
+    }
+
+    .game-inputs {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .player-input {
+        width: 100%;
+        max-width: 250px;
+    }
+
+    #chessboard {
+        grid-template-columns: repeat(8, 40px);
+        grid-template-rows: repeat(8, 40px);
+        width: 320px;
+        height: 320px;
+    }
+
+    .top-coordinates span,
+    .bottom-coordinates span,
+    .left-coordinates span,
+    .right-coordinates span {
+        width: 40px;
+        height: 20px;
+        line-height: 20px;
+        font-size: 10px;
+    }
+
+    .board-coordinates {
+        grid-template-columns: 20px 320px 20px;
+        grid-template-rows: 20px 320px 20px;
+    }
+
+    .game-button,
+    button:not(.game-button) {
+        width: 100%;
+        max-width: 250px;
+    }
+}

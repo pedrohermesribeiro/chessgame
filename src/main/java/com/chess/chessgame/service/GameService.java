@@ -177,9 +177,10 @@ public class GameService {
         return dto;
     
     }
-
+    
     
     public Game makeMove(Long id, String moveNotation) {
+        System.out.println("Recebendo movimento: " + moveNotation);
         Optional<Game> gameOpt = gameRepository.findById(id);
         if (gameOpt.isEmpty()) {
             throw new IllegalArgumentException("Jogo não encontrado: " + id);
@@ -210,7 +211,7 @@ public class GameService {
 
         switch (piece.getType()) {
             case PAWN:
-                handlePawnMove(game, board, piece, move.getFrom(), move.getTo(), fromRow, toRow, fromCol, toCol, playerColor);
+                handlePawnMove(game, board, piece, move.getFrom(), move.getTo(), fromRow, toRow, fromCol, toCol, playerColor, moveNotation);
                 break;
             case KING:
                 handleKingMove(game, board, piece, move.getFrom(), move.getTo(), fromRow, toRow, fromCol, toCol, playerColor, opponentColor);
@@ -234,8 +235,7 @@ public class GameService {
                 break;
         }
         
-        
-     // Se for roque, mover a torre também
+        // Se for roque, mover a torre também
         if (move.isCastling()) {
             if (move.getTo().equals("g1")) {
                 board.put("f1", board.remove("h1")); // roque branco kingside
@@ -247,7 +247,6 @@ public class GameService {
                 board.put("d8", board.remove("a8")); // roque preto queenside
             }
         }
-
 
         // Verifica se o movimento coloca o próprio rei em xeque
         boolean kingInCheckAfter = isKingInCheck(board, playerColor);
@@ -286,13 +285,12 @@ public class GameService {
 
         System.out.println("Resultado: checkmate=" + game.isCheckmate() + ", status=" + game.getStatus());
         
-        
         return gameRepository.save(game);
     }
-       
-       
+
+    
     private PieceType parsePromotion(String moveNotation) {
-        if (moveNotation.length() > 4) {
+        if (moveNotation != null && moveNotation.length() > 4) {
             char promotionChar = moveNotation.charAt(4);
             switch (Character.toLowerCase(promotionChar)) {
                 case 'q': return PieceType.QUEEN;
@@ -496,76 +494,93 @@ public class GameService {
 	}
     
     private void handlePawnMove(Game game, Map<String, Piece> board, Piece movingPiece, String from, String to, 
-            int fromRow, int toRow, char fromCol, char toCol, PieceColor playerColor) {
-			int direction = playerColor == PieceColor.WHITE ? 1 : -1;
-			int startRow = playerColor == PieceColor.WHITE ? 2 : 7;
-			boolean isCapture = board.containsKey(to);
-			
-			System.out.println("Processando movimento de peão: " + from + " -> " + to);
-			
-			if (fromCol == toCol) { // Movimento reto
-			if (isCapture) {
-			throw new RuntimeException("Peão não pode capturar em linha reta");
-			}
-			if (toRow - fromRow == direction) {
-			// Avanço de 1 casa
-			} else if (fromRow == startRow && toRow - fromRow == 2 * direction) {
-			String intermediate = fromCol + String.valueOf(fromRow + direction);
-			if (board.containsKey(intermediate)) {
-			 throw new RuntimeException("Peão não pode pular sobre peças");
-			}
-			} else {
-			throw new RuntimeException("Movimento inválido de peão");
-			}
-			} else if (Math.abs(fromCol - toCol) == 1 && toRow - fromRow == direction) { // Diagonal
-			if (board.containsKey(to)) { // Captura normal
-			if (board.get(to).getColor() == movingPiece.getColor()) {
-			 throw new RuntimeException("Peão não pode capturar peça da mesma cor");
-			}
-			} else { // Possível en passant
-			    String lastMove = game.getLastMove();
-			    System.out.println("Verificando en passant. Último movimento: " + lastMove);
-			    if (lastMove != null && lastMove.length() >= 4) {
-			        String lastFrom = lastMove.substring(0, 2);
-			        String lastTo = lastMove.substring(2, 4);
-			        int lastFromRow = Character.getNumericValue(lastFrom.charAt(1));
-			        int lastToRow = Character.getNumericValue(lastTo.charAt(1));
-			        char lastToCol = lastTo.charAt(0);
-			        String enPassantTarget = toCol + String.valueOf(fromRow);
-			        
-			        System.out.println("enPassantTarget: " + enPassantTarget + ", lastTo: " + lastTo + ", lastFrom: " + lastFrom);
-			        if (board.containsKey(enPassantTarget) &&
-			            board.get(enPassantTarget).getType() == PieceType.PAWN &&
-			            board.get(enPassantTarget).getColor() != playerColor &&
-			            lastTo.equals(enPassantTarget) &&
-			            Math.abs(lastToRow - lastFromRow) == 2 &&
-			            lastToCol == toCol &&
-			            (playerColor == PieceColor.WHITE ? fromRow == 5 : fromRow == 4)) { // Verifica a fileira correta
-			            System.out.println("En passant confirmado. Removendo peão em: " + enPassantTarget);
-			            board.remove(enPassantTarget); // Remove o peão capturado
-			        } else {
-			            System.out.println("En passant inválido. Condições não atendidas.");
-			            throw new RuntimeException("Movimento diagonal inválido: captura ou en passant não permitido");
-			        }
-			    } else {
-			        System.out.println("En passant inválido. Nenhum movimento anterior.");
-			        throw new RuntimeException("Movimento diagonal inválido: nenhum movimento anterior para en passant");
-			    }
-			}
-			} else {
-				throw new RuntimeException("Movimento inválido de peão");
-			}
-			
-			// Promoção
-			if (playerColor == PieceColor.WHITE && toRow == 8 || playerColor == PieceColor.BLACK && toRow == 1) {
-				movingPiece = new Piece(PieceType.QUEEN, playerColor,9);
-			}
-				executeMove(board, from, to, movingPiece, playerColor);
-				System.out.println("Tabuleiro após movimento: " + board);
-	}
+            int fromRow, int toRow, char fromCol, char toCol, PieceColor playerColor, String moveNotation) {
+        int direction = playerColor == PieceColor.WHITE ? 1 : -1;
+        int startRow = playerColor == PieceColor.WHITE ? 2 : 7;
+        boolean isCapture = board.containsKey(to);
+        
+        System.out.println("Processando movimento de peão: " + from + " -> " + to + ", notação: " + moveNotation);
+        
+        if (fromCol == toCol) { // Movimento reto
+            if (isCapture) {
+                throw new RuntimeException("Peão não pode capturar em linha reta");
+            }
+            if (toRow - fromRow == direction) {
+                // Avanço de 1 casa
+            } else if (fromRow == startRow && toRow - fromRow == 2 * direction) {
+                String intermediate = fromCol + String.valueOf(fromRow + direction);
+                if (board.containsKey(intermediate)) {
+                    throw new RuntimeException("Peão não pode pular sobre peças");
+                }
+            } else {
+                throw new RuntimeException("Movimento inválido de peão");
+            }
+        } else if (Math.abs(fromCol - toCol) == 1 && toRow - fromRow == direction) { // Diagonal
+            if (board.containsKey(to)) { // Captura normal
+                if (board.get(to).getColor() == movingPiece.getColor()) {
+                    throw new RuntimeException("Peão não pode capturar peça da mesma cor");
+                }
+            } else { // Possível en passant
+                String lastMove = game.getLastMove();
+                System.out.println("Verificando en passant. Último movimento: " + lastMove);
+                if (lastMove != null && lastMove.length() >= 4) {
+                    String lastFrom = lastMove.substring(0, 2);
+                    String lastTo = lastMove.substring(2, 4);
+                    int lastFromRow = Character.getNumericValue(lastFrom.charAt(1));
+                    int lastToRow = Character.getNumericValue(lastTo.charAt(1));
+                    char lastToCol = lastTo.charAt(0);
+                    String enPassantTarget = toCol + String.valueOf(fromRow);
+                    
+                    System.out.println("enPassantTarget: " + enPassantTarget + ", lastTo: " + lastTo + ", lastFrom: " + lastFrom);
+                    if (board.containsKey(enPassantTarget) &&
+                        board.get(enPassantTarget).getType() == PieceType.PAWN &&
+                        board.get(enPassantTarget).getColor() != playerColor &&
+                        lastTo.equals(enPassantTarget) &&
+                        Math.abs(lastToRow - lastFromRow) == 2 &&
+                        lastToCol == toCol &&
+                        (playerColor == PieceColor.WHITE ? fromRow == 5 : fromRow == 4)) {
+                        System.out.println("En passant confirmado. Removendo peão em: " + enPassantTarget);
+                        board.remove(enPassantTarget); // Remove o peão capturado
+                    } else {
+                        System.out.println("En passant inválido. Condições não atendidas.");
+                        throw new RuntimeException("Movimento diagonal inválido: captura ou en passant não permitido");
+                    }
+                } else {
+                    System.out.println("En passant inválido. Nenhum movimento anterior.");
+                    throw new RuntimeException("Movimento diagonal inválido: nenhum movimento anterior para en passant");
+                }
+            }
+        } else {
+            throw new RuntimeException("Movimento inválido de peão");
+        }
+        
+        // Promoção
+        if (playerColor == PieceColor.WHITE && toRow == 8 || playerColor == PieceColor.BLACK && toRow == 1) {
+            PieceType promotedType = parsePromotion(moveNotation); // Usa a notação do movimento atual
+            int pieceValue;
+            switch (promotedType) {
+                case QUEEN:
+                    pieceValue = 9;
+                    break;
+                case ROOK:
+                    pieceValue = 5;
+                    break;
+                case KNIGHT:
+                case BISHOP:
+                    pieceValue = 3;
+                    break;
+                default:
+                    throw new IllegalArgumentException("Peça de promoção inválida: " + promotedType);
+            }
+            movingPiece = new Piece(promotedType, playerColor, pieceValue);
+            System.out.println("Peão promovido para: " + promotedType + " em " + to);
+        }
+        
+        executeMove(board, from, to, movingPiece, playerColor);
+        System.out.println("Tabuleiro após movimento: " + board);
+    }
     
-
-
+    
     private void validateRookMove(Map<String, Piece> board, int fromRow, int toRow, char fromCol, char toCol, Piece movingPiece) {
         boolean isHorizontal = fromRow == toRow;
         boolean isVertical = fromCol == toCol;

@@ -375,9 +375,53 @@
                 currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
                 isWhiteTurn = gameData.whiteTurn;
 
-                // Atualiza roque, se necessário
-                if (gameData.lastMove && (gameData.blackRookA8Moved || gameData.blackRookH8Moved || gameData.whiteRookA1Moved || gameData.whiteRookH1Moved)) {
-                    // ... (lógica de roque permanece igual)
+                //Movimento da torre preta rook grande
+                if(rookBlackExecutado === false && gameData.blackRookA8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8c8'){
+                    const from = 'a8';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'd8';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement);                    
+                    fromSquare.innerHTML = '';
+                    rookBlackExecutado = true;
+                    console.log("pode realizar o rook preto maior",gameData.lastMove);
+                }
+                //Movimento da torre branca rook grande
+                if(rookWhiteExecutado === false && gameData.whiteRookA1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1c1'){
+                    const from = 'a1';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'd1';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookWhiteExecutado = true;
+                    console.log("pode realizar o rook branco maior",gameData.lastMove);
+                }
+                //Movimento da torre preta rook pequeno
+                if(rookBlackExecutado === false && gameData.blackRookH8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8g8'){
+                    const from = 'h8';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'f8';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookBlackExecutado = true;
+                    console.log("pode realizar o rook preto maior",gameData.lastMove);
+                }
+                //Movimento da torre branca rook pequeno
+                if(rookWhiteExecutado === false && gameData.whiteRookH1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1g1'){
+                    const from = 'h1';
+                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
+                    const kingElement = fromSquare.querySelector('img');
+                    const to = 'f1';
+                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
+                    toSquare.appendChild(kingElement); 
+                    fromSquare.innerHTML = '';
+                    rookWhiteExecutado = true;
+                    console.log("pode realizar o rook branco menor",gameData.lastMove);
                 }
 
                 // Atualiza o tabuleiro apenas se o lastMove for diferente do último movimento processado
@@ -404,6 +448,9 @@
 
       
         function updateBoard(from, to, rookFrom, rookTo, gameData) {
+
+            //Laço para detectar se é promoção do peão quando está no mode computer e promover
+            //o peão a rainha.
             const lastMove = gameData.lastMove;
             const row = parseInt(lastMove.substring(3,4));
             currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
@@ -413,7 +460,32 @@
                         || toPieces.type === 'QUEEN' && row === 8 && gameMode === "vsComputer" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer" && toPieces.color === "BLACK";
 
+            if (promocaoComputer === true) { 
+                const lastMove = currentBoardData;
+                const fromPiece = currentBoardData[from];
+                const square = document.querySelector(`.square[data-pos="${to}"]`); 
+                const squareFrom = document.querySelector(`.square[data-pos="${from}"]`); 
+
+                if(square.innerHTML !== ''){
+                    const toPiece = currentBoardData[to]; 
+                }
+                
+                console.log(`Detectada promoção no movimento: ${lastMove}`,row,toPieces,from,to);
             
+                const piece = currentBoardData[to];
+                const key = `${piece.color}_${piece.type}`;
+                const img = document.createElement('img');
+                img.src = `/img/${pieceImages[key]}`;
+                img.width = 48;
+                img.height = 48;
+                img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
+                square.innerHTML = '';
+                square.appendChild(img);
+                squareFrom.innerHTML = '';
+            
+                console.log(`Detectada promoção no movimento: ${lastMove}`,`${key,img}`,key,`${img.src}`);
+            } 
+                        
             if (rookFrom && rookTo) {
                 // Roque
                 const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
@@ -439,31 +511,6 @@
 
                     console.log(`Roque atualizado: Rei ${from} -> ${to}, Torre ${rookFrom} -> ${rookTo}`);
                 }
-            } else if (promocaoComputer === true) { 
-
-                const lastMove = currentBoardData;
-                const fromPiece = currentBoardData[from];
-                const square = document.querySelector(`.square[data-pos="${to}"]`); 
-                const squareFrom = document.querySelector(`.square[data-pos="${from}"]`); 
-
-                if(square.innerHTML !== ''){
-                    const toPiece = currentBoardData[to]; 
-                }
-                
-                console.log(`Detectada promoção no movimento: ${lastMove}`,row,toPieces,from,to);
-            
-                const piece = currentBoardData[to];
-                const key = `${piece.color}_${piece.type}`;
-                const img = document.createElement('img');
-                img.src = `/img/${pieceImages[key]}`;
-                img.width = 48;
-                img.height = 48;
-                img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
-                square.innerHTML = '';
-                square.appendChild(img);
-                squareFrom.innerHTML = '';
-            
-                console.log(`Detectada promoção no movimento: ${lastMove}`,`${key,img}`,key,`${img.src}`);
             } else {
                 // Movimento normal (ou en passant)
                 const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
@@ -507,11 +554,11 @@
                 }
 
                 // Executa movimento visual normal
-                if(toSquare.innerHTML !== ''){
+                if(toSquare.innerHTML !== '' && !promocaoComputer && gameData.status !== 'DRAW'){
                     toSquare.innerHTML = '';
                 }
                 
-                if (pieceElement) toSquare.appendChild(pieceElement);
+                if (pieceElement && !promocaoComputer && gameData.status !== 'DRAW') toSquare.appendChild(pieceElement);
                 fromSquare.innerHTML = '';
                 console.log(`Tabuleiro atualizado: ${from} -> ${to}`);
             }
@@ -773,8 +820,10 @@
                 div.addEventListener('click', async () => {
                     const moveNotation = moveNotationBase + option.char;
                     console.log('Promoção selecionada:', moveNotation);
-                    await makeMove(gameId, moveNotation);
+                    const updatedGame = await makeMove(gameId, moveNotation);
                     dialog.style.display = 'none';
+                    // Atualiza currentBoardData com o novo estado do tabuleiro
+                    currentBoardData = updatedGame.board || JSON.parse(updatedGame.boardState || '{}');
                     const previousSquare = document.querySelector(`.square[data-pos="${selectedSquare}"]`);
                     if (previousSquare) previousSquare.classList.remove('selected');
                     previousSquare.innerHTML = '';
