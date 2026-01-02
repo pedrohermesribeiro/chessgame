@@ -31,3 +31,21 @@ build/
 
 ### VS Code ###
 .vscode/
+/.apt_generated_tests/
+
+# Eclipse
+.metadata/
+.recommenders/
+.settings/
+.project
+.classpath
+
+# Logs
+*.log
+
+# Build
+/target/
+
+# IDEs
+.idea/
+.vscode/

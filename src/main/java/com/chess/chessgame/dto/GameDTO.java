@@ -6,6 +6,7 @@ import java.util.Map;
 import com.chess.chessgame.model.Piece;
 import com.chess.chessgame.model.enums.GameStatus;
 
+import jakarta.persistence.Lob;
 import lombok.Data;
 
 @Data
@@ -19,6 +20,7 @@ public class GameDTO {
     private boolean inCheck;
     private boolean checkmate;
     private Map<String, Piece> board;
+    @Lob
     private List<String> boardStateHistory;
     private boolean whiteKingMoved;
     private boolean whiteRookA1Moved;

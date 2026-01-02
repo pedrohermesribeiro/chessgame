@@ -89,8 +89,6 @@ import lombok.Data;
 			System.out.println(this.boardState);
 		}
 		
-		
-		
 		public Game(String playerWhite, String playerBlack, GameStatus status, boolean whiteTurn, String boardState,
 				String boardTest, List<String> boardStateHistory, String lastMove, boolean whiteKingMoved,
 				boolean whiteRookA1Moved, boolean whiteRookH1Moved, boolean blackKingMoved, boolean blackRookA8Moved,
@@ -118,6 +116,7 @@ import lombok.Data;
 		
 
 		public Game(Game game) {
+			//this.id++;
 			// TODO Auto-generated constructor stub
 		}
 
@@ -281,6 +280,8 @@ import lombok.Data;
 		public void setMoves(List<Move> moves) {
 			this.moves = moves;
 		}
+
+
 	    
 	    
 	}

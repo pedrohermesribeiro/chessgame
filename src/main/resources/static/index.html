@@ -32,6 +32,8 @@
                 <option value="single">Single Browser (One Player)</option>
                 <option value="vsComputer">Player vs. Computer</option>
                 <option value="hard-computer">Player vs Hard Computer</option>
+                <option value="vsAIo3">Player vs AI (o3-mini - OpenAI)</option>
+                <option value="hard-computer-2">Player vs Hard Computer-2</option>
             </select>
         <label for="player-color">Cor:</label>
         <select id="player-color">
@@ -117,11 +119,11 @@
         function createGame() {
             gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" || gameMode === "hard-computer" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('gameMessage').textContent = "";
             checkmate = false;
 
-            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer') {
+            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2') {
                 playerColor = 'WHITE'; // Jogador controla as brancas
             }
 
@@ -156,9 +158,9 @@
                 createBoard(JSON.parse(data.boardState));
                 updateGameState(gameId);
                 // Se for vsComputer e começar com pretas, acionar movimento do computador
-                if ((gameMode === 'vsComputer' || gameMode === 'hard-computer') && !isWhiteTurn) {
+                /*if ((gameMode === 'vsComputer' || gameMode === 'hard-computer') && !isWhiteTurn) {
                     makeComputerMove(gameId);
-                }
+                }*/
             })
             .catch(error => {
                 console.error("Erro ao criar jogo:", error);
@@ -173,17 +175,22 @@
             checkmate = false;
             boardState = {};
             selectedSquare = null;
+            gameMode = document.getElementById("mode-select").value;
+            const white = document.getElementById("playerWhite").value || "Player1";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('chessboard').innerHTML = '';
             document.getElementById('gameMessage').innerHTML = '';
-            if (!gameId) {
+           /* if (!gameId) {
                 document.getElementById('gameStatus').innerText = 'Nenhum jogo ativo para reiniciar.';
                 return;
-            }
+            }*/
             
-            fetch(`/games/${gameId}/reset`, {
+            /*fetch('/games/reset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
-            }).then(response => {
+                //body: `playerWhite=${encodeURIComponent(white)}&playerBlack=${encodeURIComponent(black)}`
+            })
+            .then(response => {
                 if (!response.ok) throw new Error("Erro ao criar jogo");
                 return response.json();
             }).then(data => {
@@ -197,7 +204,7 @@
             .catch(error => {
                 console.error('Erro ao reiniciar jogo:', error);
                 document.getElementById('gameStatus').innerText = 'Erro ao reiniciar jogo.';
-            });
+            });*/
         }
         
         function createBoard(boardData) {
@@ -241,22 +248,26 @@
                     throw new Error("Jogo encerrado");
                     return;
                 }
+                console.log("Próximo movimento: ",moveNotation);
                 const response = await fetch(`/games/${gameId}/move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ moveNotation })
                 });
+                console.log("Response moveNotatio: " , response);
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(errorText);
                 }
+                //console.log("Retorno do movimento Realizado antes : ", updateGame);
                 const updatedGame = await response.json();
+                //console.log("Retorno do movimento Realizado: ", updateGame);
                 console.log("Movimento realizado:", updatedGame);
 
                 isWhiteTurn = updatedGame.whiteTurn;
                 document.getElementById('gameStatus').textContent = `Status: ${updatedGame.status}`;
                 
-                if (updatedGame.inCheck) {
+                if (updatedGame.inCheck === true) {
                     document.getElementById('gameMessage').textContent = "Xeque! Resolva o xeque.";
                 } else if (updatedGame.checkmate) {
                     checkmate = true;
@@ -269,12 +280,16 @@
                 updateGameState(gameId);
                 console.log("Acionando movimento do computador após jogada do jogador.",gameMode,"OI");
                 // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
-                if ((gameMode === "vsComputer" || gameMode === "hard-computer") && !isWhiteTurn) {
-                    setTimeout(() => {
-                        console.log("Acionando movimento do computador após jogada do jogador.");
-                        makeComputerMove(gameId);
-                    }, gameMode === "hard-computer" ? 500 : 2000); // Mais tempo para hard-computer
+                if (!isWhiteTurn) {
+                    if (gameMode === "vsAIo3") {
+                        setTimeout(() => triggerAIMoveO3(gameId), 1200);
+                    } else if (gameMode === "vsComputer" || gameMode === "hard-computer") {
+                        setTimeout(() => makeComputerMove(gameId), gameMode === "hard-computer" ? 500 : 2000);
+                    }else if (gameMode === "hard-computer-2") {
+                        setTimeout(() => makeComputerMove(gameId), gameMode === "hard-computer-2" ? 500 : 2000);
+                    }
                 }
+
 
                 return updatedGame;
             } catch (error) {
@@ -289,69 +304,150 @@
         async function makeComputerMove(gameId) {
             if (isProcessing) return;
             isProcessing = true;
-            document.getElementById('gameMessage').textContent = "Computador pensando...";
-            document.getElementById('chessboard').style.pointerEvents = 'none';
+
+            const msg = document.getElementById('gameMessage');
+            const boardEl = document.getElementById('chessboard');
+
+            msg.textContent = "Computador pensando...";
+            boardEl.style.pointerEvents = 'none';
 
             console.log("Solicitando movimento do computador para gameId:", gameId);
+
             try {
+                // 1. Buscar estado atual do jogo
                 const responseGet = await fetch(`/games/${gameId}`);
                 const gameData = await responseGet.json();
 
                 if (gameData.checkmate) {
-                    document.getElementById('gameMessage').textContent = "Jogo encerrado, inicie novo jogo.";
-                    isProcessing = false;
-                    document.getElementById('chessboard').style.pointerEvents = 'auto';
+                    msg.textContent = "Jogo encerrado. Inicie um novo jogo.";
                     return;
                 }
 
-                let endpoint;
-                if (gameMode === "vsComputer") {
-                    endpoint = `/games/${gameId}/smart-computer-move`;
-                } else if (gameData.inCheck) {
-                    endpoint = `/games/${gameId}/defensive-move`;
-                } else {
-                    endpoint = `/games/${gameId}/reactive-move`;
+                // 2. Checar turno — só movimenta quando for turno das pretas
+                if (gameData.whiteTurn !== false) {
+                    msg.textContent = "Aguarde o movimento do jogador.";
+                    return;
                 }
 
-                console.log(`Acionando movimento do computador. endpoint ${endpoint}`);
+                // 🔥 IMPORTANTE: endpoint precisa existir FORA do if
+                let endpoint = null;
+
+                // --- SELEÇÃO DO MODO DE JOGO ---
+                switch (gameMode) {
+
+                    case "vsAIo3":
+                        endpoint = `/games/${gameId}/o3-mini-move`;
+                        break;
+
+                    case "vsComputer":
+                        endpoint = `/games/${gameId}/smart-computer-move`;
+                        break;
+
+                    case "hard-computer": // Seu modo HARD original (não Stockfish)
+                        endpoint = `/games/${gameId}/hard-computer-move`;
+                        break;
+
+                    case "hard-computer-2": // Novo modo HARD usando STOCKFISH
+                        endpoint = `/games/${gameId}/stockfish-move`;
+                        break;
+
+                    default:
+                        // ⭐ SE O REI ESTÁ EM XEQUE → movimento defensivo
+                        if (gameData.inCheck) {
+                            endpoint = `/games/${gameId}/defensive-move`;
+                        }
+                        // ⭐ Caso normal → reactive move
+                        else {
+                            endpoint = `/games/${gameId}/reactive-move`;
+                        }
+                        break;
+                }
+
+                // Segurança
+                if (!endpoint) {
+                    throw new Error("Modo de jogo não configurado corretamente! endpoint == null");
+                }
+
+                console.log(`➡ Computador usando endpoint: ${endpoint}`);
+
+                // 3. Enviar requisição ao back-end
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
+
                 if (!response.ok) {
                     throw new Error(`Erro ao realizar movimento do computador: ${response.statusText}`);
                 }
+
                 const updatedGame = await response.json();
                 console.log("Movimento do computador realizado:", updatedGame);
 
+                // 4. Validações
                 if (!updatedGame.id || !updatedGame.lastMove) {
                     throw new Error("Resposta inválida do servidor: ID ou lastMove ausentes");
                 }
 
+                // 5. Atualização do estado do jogo no front-end
                 isWhiteTurn = updatedGame.whiteTurn;
                 document.getElementById('gameStatus').textContent = `Status: ${updatedGame.status}`;
 
                 currentBoardData = updatedGame.board || JSON.parse(updatedGame.boardState || '{}');
-                
+
                 if (updatedGame.inCheck) {
-                    document.getElementById('gameMessage').textContent = "Xeque! Resolva o xeque.";
-                } else if (updatedGame.checkmate) {
+                    msg.textContent = "Xeque! Resolva o xeque.";
+                } 
+                else if (updatedGame.checkmate) {
                     checkmate = true;
-                    document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo encerrado.";
-                } else {
-                    document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
+                    msg.textContent = "Xeque-mate! Jogo encerrado.";
+                } 
+                else {
+                    msg.textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
                 }
 
                 updateTurnButtons();
                 updateGameState(gameId);
+
             } catch (error) {
                 console.error("Erro no movimento do computador:", error);
-                document.getElementById('gameMessage').textContent = `Erro: ${error.message}`;
+                msg.textContent = `Erro: ${error.message}`;
+
             } finally {
                 isProcessing = false;
-                document.getElementById('chessboard').style.pointerEvents = 'auto';
+                boardEl.style.pointerEvents = 'auto';
             }
         }
+
+
+        async function triggerAIMoveO3(gameId) {
+            try {
+                document.getElementById('gameMessage').textContent = "IA (o3-mini) pensando...";
+                const response = await fetch(`/games/${gameId}/o3-mini-move2`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) throw new Error("Erro IA o3-mini");
+
+                const updatedGame = await response.json();
+
+                isWhiteTurn = updatedGame.whiteTurn;
+                currentBoardData = updatedGame.board || JSON.parse(updatedGame.boardState);
+                updateGameState(gameId);
+
+                if (updatedGame.inCheck) {
+                    document.getElementById('gameMessage').textContent = "Xeque!";
+                } else if (updatedGame.checkmate) {
+                    document.getElementById('gameMessage').textContent = "Xeque-mate!";
+                } else {
+                    document.getElementById('gameMessage').textContent = "";
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('gameMessage').textContent = "Erro na IA o3-mini";
+            }
+        }
+
 
         function highlightMoves(moves) {
             console.log('Destacando movimentos:', moves);
@@ -457,8 +553,10 @@
             const toPieces = currentBoardData[to]
             promocaoComputer = toPieces.type === 'QUEEN' && row === 1 && gameMode === "vsComputer" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 1 && gameMode === "hard-computer" && toPieces.color === "BLACK"
+                        || toPieces.type === 'QUEEN' && row === 1 && gameMode === "hard-computer-2" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 8 && gameMode === "vsComputer" && toPieces.color === "BLACK"
-                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer" && toPieces.color === "BLACK";
+                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer" && toPieces.color === "BLACK"
+                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer-2" && toPieces.color === "BLACK";
 
             if (promocaoComputer === true) { 
                 const lastMove = currentBoardData;
@@ -582,7 +680,7 @@
             }
 
       
-            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer') && playerColor) {
+            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2') && playerColor) {
                 if (isWhiteTurn && playerColor !== 'WHITE') {
                     document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
                     return;

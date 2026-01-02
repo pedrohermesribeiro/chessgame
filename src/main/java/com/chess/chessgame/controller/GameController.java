@@ -1,11 +1,7 @@
-
-
 package com.chess.chessgame.controller;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,33 +11,29 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import com.chess.chessgame.dto.BoardStateDTO;
 import com.chess.chessgame.dto.CastleOptionsDTO;
 import com.chess.chessgame.dto.GameDTO;
 import com.chess.chessgame.dto.GameRequestDTO;
-import com.chess.chessgame.dto.MoveRequest; // Importar a nova classe
+import com.chess.chessgame.dto.MoveRequest;
 import com.chess.chessgame.model.Game;
 import com.chess.chessgame.model.Piece;
 import com.chess.chessgame.model.enums.PieceColor;
 import com.chess.chessgame.service.GameService;
-
 @RestController
 @RequestMapping("/games")
 public class GameController {
-
     @Autowired
     private GameService gameService;
-    
+   
     Map<String, Piece> board = new HashMap<>();
-    
+   
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getGameById(@PathVariable Long id) {
         Optional<Game> gameOpt = gameService.getGame(id);
         if (gameOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-
         Game game = gameOpt.get();
         Map<String, Object> response = new HashMap<>();
         response.put("id", game.getId());
@@ -59,32 +51,30 @@ public class GameController {
         response.put("blackKingMoved", game.isBlackKingMoved());
         response.put("blackRookA8Moved", game.isBlackRookA8Moved());
         response.put("blackRookH8Moved", game.isBlackRookH8Moved());
-
         return ResponseEntity.ok(response);
     }
-
     @PostMapping
     public Game createGame(@RequestParam String playerWhite, @RequestParam String playerBlack) {
-    	Game game = gameService.createGame(playerWhite, playerBlack);
-    	GameRequestDTO gm = new GameRequestDTO(game.getPlayerWhite(),game.getPlayerBlack(),game.getStatus().name(),
-    			game.convertToDatabaseColumn(board));
-    	
- 
+     Game game = gameService.createGame(playerWhite, playerBlack);
+     /*GameRequestDTO gm = new GameRequestDTO(game.getPlayerWhite(),game.getPlayerBlack(),game.getStatus().name(),
+     game.convertToDatabaseColumn(board));*/
+    
         return game;
      }
-    
-    @PostMapping("/{id}/reset")
-    public Game resetGame(@PathVariable Long id) {
-        return gameService.resetGame(id);
+   
+    @PostMapping("/games/reset")
+    public Game resetGame() {
+     //Game game = gameService.createGame(playerWhite, playerBlack);
+     //Game game = gameService.resetGame(playerWhite, playerBlack);
+     return null;
     }
-    
+   
     @GetMapping("/games/{id}")
     public ResponseEntity<Map<String, Object>> getGameState(@PathVariable Long id) {
         Optional<Game> gameOpt = gameService.getGame(id);
         if (gameOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-
         Game game = gameOpt.get();
         Map<String, Object> response = new HashMap<>();
         response.put("id", game.getId());
@@ -102,87 +92,100 @@ public class GameController {
         response.put("blackKingMoved", game.isBlackKingMoved());
         response.put("blackRookA8Moved", game.isBlackRookA8Moved());
         response.put("blackRookH8Moved", game.isBlackRookH8Moved());
-
         return ResponseEntity.ok(response);
     }
-
-
-    
+   
     @GetMapping("/{id}/castle-options")
     public ResponseEntity<CastleOptionsDTO> getCastleOptions(@PathVariable Long id) {
         Game optionalGame = gameService.getGame(id).get();
         Game game = optionalGame;
         Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
         PieceColor color = game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK;
-
         boolean kingside = gameService.canCastleKingside(board, game, color);
         boolean queenside = gameService.canCastleQueenside(board, game, color);
-
         return ResponseEntity.ok(new CastleOptionsDTO(kingside, queenside));
     }
-
-    
+   
     @PostMapping("/{id}/move")
     public Game makeMove(@PathVariable Long id, @RequestBody MoveRequest moveRequest) {
+     System.err.println("Recebendo solicitação para id/move no gameId: " + id);
+     System.out.println("Último movimento, notation nº 1: " + moveRequest);
         return gameService.makeMove(id, moveRequest.getMoveNotation());
     }
-    
+   
     @PostMapping("/{id}/computer-move")
     public ResponseEntity<Game> makeComputerMove(@PathVariable Long id) {
         try {
+         System.err.println("Recebendo solicitação para id-computer-move no gameId: " + id);
             Game updatedGame = gameService.makeComputerMove(id);
             return ResponseEntity.ok(updatedGame);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(null);
         }
     }
-
     @PostMapping("/{id}/smart-computer-move")
     public ResponseEntity<Game> makeSmartComputerMove(@PathVariable Long id) {
         try {
-            Game updatedGame = gameService.makeCaptureBasedMove(id); // novo método do serviço
+         System.err.println("Recebendo solicitação para smart-computer-move no gameId: " + id);
+            Game updatedGame = gameService.makeHardAIMove(id); // novo método do serviço
             return ResponseEntity.ok(updatedGame);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(null);
         }
     }
-    
+   
     @PostMapping("/{id}/hard-computer-move")
+    public ResponseEntity<GameDTO> makeHardComputerMove(@PathVariable Long id) {
+        System.err.println("Recebendo solicitação para hard-computer-move no gameId: " + id);
+        Game game = gameService.makeHardAIMove(id);
+        GameDTO gameDTO = gameService.getGameDTO(id);
+        System.out.println("GameDTO retornado: id=" + gameDTO.getId() + ", lastMove=" + gameDTO.getLastMove());
+        return ResponseEntity.ok(gameDTO);
+    }
+   
+   
+    /*@PostMapping("/{id}/hard-computer-move")
     public ResponseEntity<GameDTO> makeHardMove(@PathVariable Long id) {
         Game game = gameService.makeHardAIMove(id);
         Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
         return ResponseEntity.ok(new GameDTO(game.getId(), game.getPlayerWhite(),game.getPlayerBlack(),
-        		game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
-        		game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
-        		game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
-        		game.isBlackRookA8Moved(),game.isBlackRookH8Moved()));
+         game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
+         game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
+         game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
+         game.isBlackRookA8Moved(),game.isBlackRookH8Moved()));
+    }*/
+   
+ // Método para preload (chame no startup ou endpoint separado)
+    @PostMapping("/preload-bad-openings")
+    public ResponseEntity<String> preloadBadOpenings() {
+        gameService.preloadBadOpenings();
+        return ResponseEntity.ok("Aberturas ruins pré-carregadas.");
     }
-    
+   
     @PostMapping("/{gameId}/capture-move")
     public GameDTO makeCaptureMove(@PathVariable Long gameId) {
         return gameService.getGameDTO(gameId);
     }
-
     @PostMapping("/{id}/defensive-move")
     public ResponseEntity<GameDTO> makeDefensiveMove(@PathVariable Long id) {
+     System.err.println("Recebendo solicitação para id/defensive-move no gameId: " + id);
         System.out.println("Iniciando makeDefensiveMove para gameId: " + id);
         Game game = gameService.makeDefensiveMove(id);
         GameDTO gameDTO = new GameDTO(game.getId(), game.getPlayerWhite(),game.getPlayerBlack(),
-        		game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
-        		game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
-        		game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
-        		game.isBlackRookA8Moved(),game.isBlackRookH8Moved());
+         game.isWhiteTurn(),game.getStatus(),game.getLastMove(),game.isInCheck(),
+         game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
+         game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
+         game.isBlackRookA8Moved(),game.isBlackRookH8Moved());
         System.out.println("GameDTO criado: id=" + gameDTO.getId() + ", lastMove=" + gameDTO.getLastMove());
         return ResponseEntity.ok(gameDTO);
     }
-
     @PostMapping("/{gameId}/reactive-move")
     public GameDTO makeReactiveMove(@PathVariable Long gameId) {
-    	
-    	Game game = gameService.makeReactiveMove(gameId);
+    
+     Game game = gameService.makeReactiveMove(gameId);
         Map<String, Piece> board = gameService.desearilizeState(game.getBoardState());
         GameDTO dto = new GameDTO();
-        
+       
            dto.setId(game.getId());
            dto.setPlayerWhite(game.getPlayerWhite());
            dto.setPlayerBlack(game.getPlayerBlack());
@@ -199,20 +202,17 @@ public class GameController {
            dto.setBlackKingMoved(game.isBlackKingMoved());
            dto.setBlackRookA8Moved(game.isBlackRookA8Moved());
            dto.setBlackRookH8Moved(game.isBlackRookH8Moved());
-           
+          
            return dto;
     }
-
-
-    
+   
     @GetMapping("/{id}/board")
     public ResponseEntity<BoardStateDTO> getBoard(@PathVariable Long id) {
-    	Game game = gameService.getGame(id).get();
-      	Map<String, Piece> mapPiece = gameService.desearilizeState(game.getBoardState());
+     Game game = gameService.getGame(id).get();
+       Map<String, Piece> mapPiece = gameService.desearilizeState(game.getBoardState());
         BoardStateDTO board = new BoardStateDTO(mapPiece);
         return ResponseEntity.ok(board);
     }
-
     @GetMapping
     public ResponseEntity<Game> createGameViaGet(
             @RequestParam String white,
@@ -220,4 +220,29 @@ public class GameController {
         Game game = gameService.createGame(white, black);
         return ResponseEntity.ok(game);
     }
+    
+   /* @PostMapping("/{id}/ai-move-o3")
+    public ResponseEntity<Game> makeAIMoveO3(@PathVariable Long id) {
+        Game game = gameService.makeAIMoveO3(id);
+        return ResponseEntity.ok(game);
+    }*/
+    
+    @PostMapping("/{id}/o3-mini-move")
+    public ResponseEntity<Game> makeO3MiniMove(@PathVariable Long id) {
+        Game updatedGame = gameService.makeO3MiniMove(id);
+        return ResponseEntity.ok(updatedGame);
+    }
+    
+    
+    @PostMapping("/{id}/stockfish-move")
+    public ResponseEntity<Game> stockfishMove(@PathVariable Long id) {
+        Game updated = gameService.makeStockfishMove(id);
+        return ResponseEntity.ok(updated);
+    }
+
+
+
+   
+   
 }
+
