@@ -49,3 +49,7 @@ build/
 # IDEs
 .idea/
 .vscode/
+
+# Executáveis locais (importante para o ChessGame)
+stockfish.exe
+stockfish

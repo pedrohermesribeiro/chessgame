@@ -282,7 +282,7 @@
                 // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
                 if (!isWhiteTurn) {
                     if (gameMode === "vsAIo3") {
-                        setTimeout(() => triggerAIMoveO3(gameId), 1200);
+                        setTimeout(() => triggerAIMoveO3(gameId), 500);
                     } else if (gameMode === "vsComputer" || gameMode === "hard-computer") {
                         setTimeout(() => makeComputerMove(gameId), gameMode === "hard-computer" ? 500 : 2000);
                     }else if (gameMode === "hard-computer-2") {
@@ -344,7 +344,7 @@
                         break;
 
                     case "hard-computer": // Seu modo HARD original (não Stockfish)
-                        endpoint = `/games/${gameId}/hard-computer-move`;
+                        endpoint = `/games/${gameId}/reactive-move`;
                         break;
 
                     case "hard-computer-2": // Novo modo HARD usando STOCKFISH
@@ -420,9 +420,19 @@
 
 
         async function triggerAIMoveO3(gameId) {
+
+            const responseGet = await fetch(`/games/${gameId}`);
+            const gameData = await responseGet.json();
+
+            if (gameData.checkmate) {
+                msg.textContent = "Jogo encerrado. Inicie um novo jogo.";
+                return;
+            }
+
+
             try {
                 document.getElementById('gameMessage').textContent = "IA (o3-mini) pensando...";
-                const response = await fetch(`/games/${gameId}/o3-mini-move2`, {
+                const response = await fetch(`/games/${gameId}/o3-mini-move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });

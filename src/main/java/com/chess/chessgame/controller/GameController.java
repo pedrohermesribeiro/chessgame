@@ -134,17 +134,18 @@ public class GameController {
         }
     }
    
+//    @PostMapping("/{id}/hard-computer-move")
+//    public ResponseEntity<GameDTO> makeHardComputerMove(@PathVariable Long id) {
+//        System.err.println("Recebendo solicitação para hard-computer-move no gameId: " + id);
+//        //Game game = gameService.makeHardAIMove(id);
+//        Game game = gameService.makeComputerMove(id);
+//        GameDTO gameDTO = gameService.getGameDTO(id);
+//        System.out.println("GameDTO retornado: id=" + gameDTO.getId() + ", lastMove=" + gameDTO.getLastMove());
+//        return ResponseEntity.ok(gameDTO);
+//    }
+   
+   
     @PostMapping("/{id}/hard-computer-move")
-    public ResponseEntity<GameDTO> makeHardComputerMove(@PathVariable Long id) {
-        System.err.println("Recebendo solicitação para hard-computer-move no gameId: " + id);
-        Game game = gameService.makeHardAIMove(id);
-        GameDTO gameDTO = gameService.getGameDTO(id);
-        System.out.println("GameDTO retornado: id=" + gameDTO.getId() + ", lastMove=" + gameDTO.getLastMove());
-        return ResponseEntity.ok(gameDTO);
-    }
-   
-   
-    /*@PostMapping("/{id}/hard-computer-move")
     public ResponseEntity<GameDTO> makeHardMove(@PathVariable Long id) {
         Game game = gameService.makeHardAIMove(id);
         Map<String, Piece> board = gameService.deserializeBoardState(game.getBoardState());
@@ -153,7 +154,7 @@ public class GameController {
          game.isCheckmate(),board,game.getBoardStateHistory(),game.isWhiteKingMoved(),
          game.isWhiteRookA1Moved(),game.isWhiteRookH1Moved(),game.isBlackKingMoved(),
          game.isBlackRookA8Moved(),game.isBlackRookH8Moved()));
-    }*/
+    }
    
  // Método para preload (chame no startup ou endpoint separado)
     @PostMapping("/preload-bad-openings")
