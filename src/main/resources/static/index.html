@@ -33,6 +33,7 @@
                 <option value="vsComputer">Player vs. Computer</option>
                 <option value="hard-computer">Player vs Hard Computer</option>
                 <option value="vsAIo3">Player vs AI (o3-mini - OpenAI)</option>
+                <option value="chatGPT-Hard">Player vs AI (chatGPT-Hard)</option>
                 <option value="hard-computer-2">Player vs Hard Computer-2</option>
             </select>
         <label for="player-color">Cor:</label>
@@ -119,11 +120,11 @@
         function createGame() {
             gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" || gameMode === "chatGPT-Hard" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('gameMessage').textContent = "";
             checkmate = false;
 
-            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2') {
+            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2' || gameMode === 'chatGPT-Hard') {
                 playerColor = 'WHITE'; // Jogador controla as brancas
             }
 
@@ -177,7 +178,7 @@
             selectedSquare = null;
             gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" || gameMode === "chatGPT-Hard" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('chessboard').innerHTML = '';
             document.getElementById('gameMessage').innerHTML = '';
            /* if (!gameId) {
@@ -283,8 +284,11 @@
                 if (!isWhiteTurn) {
                     if (gameMode === "vsAIo3") {
                         setTimeout(() => triggerAIMoveO3(gameId), 500);
-                    } else if (gameMode === "vsComputer" || gameMode === "hard-computer") {
-                        setTimeout(() => makeComputerMove(gameId), gameMode === "hard-computer" ? 500 : 2000);
+                    } else if (gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "chatGPT-Hard") {
+                        const computerMoveDelay = gameMode === "hard-computer" ? 500
+                            : gameMode === "chatGPT-Hard" ? 100
+                            : 2000;
+                        setTimeout(() => makeComputerMove(gameId), computerMoveDelay);
                     }else if (gameMode === "hard-computer-2") {
                         setTimeout(() => makeComputerMove(gameId), gameMode === "hard-computer-2" ? 500 : 2000);
                     }
@@ -349,6 +353,10 @@
 
                     case "hard-computer-2": // Novo modo HARD usando STOCKFISH
                         endpoint = `/games/${gameId}/stockfish-move`;
+                        break;
+
+                    case "chatGPT-Hard":
+                        endpoint = `/games/${gameId}/chatgpt-hard-move`;
                         break;
 
                     default:
@@ -564,9 +572,11 @@
             promocaoComputer = toPieces.type === 'QUEEN' && row === 1 && gameMode === "vsComputer" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 1 && gameMode === "hard-computer" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 1 && gameMode === "hard-computer-2" && toPieces.color === "BLACK"
+                        || toPieces.type === 'QUEEN' && row === 1 && gameMode === "chatGPT-Hard" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 8 && gameMode === "vsComputer" && toPieces.color === "BLACK"
                         || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer" && toPieces.color === "BLACK"
-                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer-2" && toPieces.color === "BLACK";
+                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "hard-computer-2" && toPieces.color === "BLACK"
+                        || toPieces.type === 'QUEEN' && row === 8 && gameMode === "chatGPT-Hard" && toPieces.color === "BLACK";
 
             if (promocaoComputer === true) { 
                 const lastMove = currentBoardData;
@@ -690,7 +700,7 @@
             }
 
       
-            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2') && playerColor) {
+            if ((gameMode === 'multi' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2' || gameMode === 'chatGPT-Hard') && playerColor) {
                 if (isWhiteTurn && playerColor !== 'WHITE') {
                     document.getElementById('gameMessage').textContent = "Não é seu turno! Aguarde as brancas.";
                     return;

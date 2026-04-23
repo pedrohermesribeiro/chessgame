@@ -1993,6 +1993,9 @@ public class GameService {
         clone.setPlayerBlack(originalGame.getPlayerBlack());
         clone.setStatus(originalGame.getStatus());
         clone.setWhiteTurn(originalGame.isWhiteTurn());
+        clone.setLastMove(originalGame.getLastMove());
+        clone.setInCheck(originalGame.isInCheck());
+        clone.setCheckmate(originalGame.isCheckmate());
        
         // Copiar o tabuleiro (deep copy)
         Map<String, Piece> clonedBoard = new HashMap<>();
@@ -2010,6 +2013,89 @@ public class GameService {
         clone.setBlackRookA8Moved(originalGame.isBlackRookA8Moved());
         clone.setBlackRookH8Moved(originalGame.isBlackRookH8Moved());
         return clone;
+    }
+
+    private void validateChatGPTHardMove(Game game, String moveNotation) {
+        Game validationGame = cloneGame(game);
+
+        try {
+            validateMoveOnSnapshot(validationGame, moveNotation);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(
+                "A IA sugeriu um lance inválido: " + moveNotation + ". " + e.getMessage(),
+                e
+            );
+        }
+    }
+
+    private void validateMoveOnSnapshot(Game game, String moveNotation) {
+        Move move = parseNotation(moveNotation, game);
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        Piece piece = board.get(move.getFrom());
+
+        if (piece == null) {
+            throw new IllegalArgumentException("Nenhuma peça na posição de origem: " + move.getFrom());
+        }
+        if (piece.getColor() != (game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK)) {
+            throw new IllegalArgumentException("Não é o turno dessa cor");
+        }
+
+        PieceColor playerColor = game.isWhiteTurn() ? PieceColor.WHITE : PieceColor.BLACK;
+        PieceColor opponentColor = playerColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        boolean kingInCheckBefore = isKingInCheck(board, playerColor);
+
+        int fromRow = Character.getNumericValue(move.getFrom().charAt(1));
+        int toRow = Character.getNumericValue(move.getTo().charAt(1));
+        char fromCol = move.getFrom().charAt(0);
+        char toCol = move.getTo().charAt(0);
+
+        switch (piece.getType()) {
+            case PAWN:
+                handlePawnMove(game, board, piece, move.getFrom(), move.getTo(), fromRow, toRow, fromCol, toCol,
+                        playerColor, moveNotation);
+                break;
+            case KING:
+                handleKingMove(game, board, piece, move.getFrom(), move.getTo(), fromRow, toRow, fromCol, toCol,
+                        playerColor, opponentColor);
+                break;
+            case ROOK:
+                validateRookMove(board, fromRow, toRow, fromCol, toCol, piece);
+                markRookMoved(game, move.getFrom(), playerColor);
+                executeMove(board, move.getFrom(), move.getTo(), piece, playerColor);
+                break;
+            case KNIGHT:
+                validateKnightMove(fromRow, toRow, fromCol, toCol, piece, board, move.getTo());
+                executeMove(board, move.getFrom(), move.getTo(), piece, playerColor);
+                break;
+            case BISHOP:
+                validateBishopMove(board, fromRow, toRow, fromCol, toCol, piece, move.getTo());
+                executeMove(board, move.getFrom(), move.getTo(), piece, playerColor);
+                break;
+            case QUEEN:
+                validateQueenMove(board, fromRow, toRow, fromCol, toCol, piece, move.getTo());
+                executeMove(board, move.getFrom(), move.getTo(), piece, playerColor);
+                break;
+        }
+
+        if (move.isCastling()) {
+            if (move.getTo().equals("g1")) {
+                board.put("f1", board.remove("h1"));
+            } else if (move.getTo().equals("c1")) {
+                board.put("d1", board.remove("a1"));
+            } else if (move.getTo().equals("g8")) {
+                board.put("f8", board.remove("h8"));
+            } else if (move.getTo().equals("c8")) {
+                board.put("d8", board.remove("a8"));
+            }
+        }
+
+        boolean kingInCheckAfter = isKingInCheck(board, playerColor);
+        if (!kingInCheckBefore && kingInCheckAfter) {
+            throw new IllegalArgumentException("Movimento inválido: coloca o rei em xeque");
+        }
+        if (kingInCheckBefore && kingInCheckAfter) {
+            throw new IllegalArgumentException("Movimento inválido: o rei permanece em xeque");
+        }
     }
    
     public void applyMove(Game game, String moveNotation, Map<String, Piece> board) {
@@ -3298,6 +3384,19 @@ public class GameService {
         String moveNotation = aiService.suggestMove(boardJson, sideToMove);
 
         // Reaproveita tua lógica atual de movimento:
+        return makeMove(gameId, moveNotation);
+    }
+
+    public Game makeChatGPTHardMove(Long gameId) {
+        Game game = gameRepository.findById(gameId)
+            .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+
+        if (game.isWhiteTurn()) {
+            throw new IllegalArgumentException("Não é a vez das pretas!");
+        }
+
+        String moveNotation = aiService.suggestHardMove(game.getBoardState(), "BLACK");
+        validateChatGPTHardMove(game, moveNotation);
         return makeMove(gameId, moveNotation);
     }
     

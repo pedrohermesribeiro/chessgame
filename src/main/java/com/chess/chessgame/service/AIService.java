@@ -53,30 +53,62 @@ public class AIService {
             - Just output the move notation.
             """.formatted(sideToMove);
 
+        return suggestMoveWithPrompt(prompt, boardStateJson);
+    }
+
+    public String suggestHardMove(String boardStateJson, String sideToMove) {
+        String prompt = """
+            You are a chess engine embedded in a Java game.
+
+            You receive the chess board as a JSON map:
+            {
+              "a2": {"type": "PAWN", "color": "WHITE", "valuePiece": 1, "codigo": 1},
+              "b1": {"type": "KNIGHT", "color": "WHITE", ...},
+              ...
+            }
+
+            It is %s to move.
+            In this mode you must play as BLACK only.
+
+            Rules:
+            - Return ONLY ONE move.
+            - The move must be a legal chess move for BLACK.
+            - Format: exactly 4 or 5 characters:
+              * Normal moves: "e2e4", "g1f3", etc.
+              * Castling: "e1g1", "e1c1", "e8g8", or "e8c8".
+              * Promotion: 5 chars, e.g. "e7e8q" (promote to queen).
+            - Do not explain the move, do not add any text, no spaces, no newlines.
+            - Just output the move notation.
+
+            Move selection priorities:
+            - Protect the BLACK king above everything else.
+            - If BLACK is in check, only choose a legal move that escapes check.
+            - Avoid moves that allow immediate checkmate or lose major material for no compensation.
+            - Prefer checkmate when available, then forcing checks, then strong tactical threats.
+            - Prefer winning material with favorable exchanges.
+            - Use these piece values when evaluating trades: pawn=1, knight=3, bishop=3, rook=5, queen=9, king=priceless.
+            - Value safe development, control of the center, king safety, and protection of attacked BLACK pieces.
+            - Prefer castling when it improves BLACK king safety.
+            - Prefer promotion to queen when a pawn can safely promote.
+            - Avoid random pawn moves or passive moves if a stronger active move exists.
+            - Never return a move for WHITE pieces.
+            """.formatted(sideToMove);
+
+        return suggestMoveWithPrompt(prompt, boardStateJson);
+    }
+
+    private String suggestMoveWithPrompt(String prompt, String boardStateJson) {
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
-        	.model("gpt-5-mini")
-            //.model(ChatModel.O3_MINI)       // modelo mais barato
+            .model("gpt-5-mini")
             .addUserMessage(prompt + "\nBoard JSON:\n" + boardStateJson)
-            //.maxTokens(32)                 // é só um lance curto
             .build();
 
         ChatCompletion completion = client.chat().completions().create(params);
-
-        // Pega o texto da primeira escolha.
-        // Se os métodos forem ligeiramente diferentes, deixa o IDE te sugerir;
-        // a ideia é: choices[0].message.content[0].text
         Optional<String> content = completion.choices().get(0).message().content();
         String raw = completion._choices().toString();
         Object raw1 = completion._choices().asObject();
-            //.get(0)
-            //.getMessage()
-            //.getContent()
-            //.get(0)
-            //.getText()
-            //.trim();
         System.err.println("retorno da IA: " + raw + " Objeto " + raw1 + " String " + content);
-        // Sanitiza só pra garantir (remove espaços/quebras)
-        return content.get();
+        return content.orElseThrow(() -> new IllegalStateException("OpenAI did not return a move")).trim();
     }
 }
 

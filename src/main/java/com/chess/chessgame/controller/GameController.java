@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.chess.chessgame.dto.BoardStateDTO;
 import com.chess.chessgame.dto.CastleOptionsDTO;
 import com.chess.chessgame.dto.GameDTO;
-import com.chess.chessgame.dto.GameRequestDTO;
 import com.chess.chessgame.dto.MoveRequest;
 import com.chess.chessgame.model.Game;
 import com.chess.chessgame.model.Piece;
@@ -232,6 +231,16 @@ public class GameController {
     public ResponseEntity<Game> makeO3MiniMove(@PathVariable Long id) {
         Game updatedGame = gameService.makeO3MiniMove(id);
         return ResponseEntity.ok(updatedGame);
+    }
+
+    @PostMapping("/{id}/chatgpt-hard-move")
+    public ResponseEntity<Game> makeChatGPTHardMove(@PathVariable Long id) {
+        try {
+            Game updatedGame = gameService.makeChatGPTHardMove(id);
+            return ResponseEntity.ok(updatedGame);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(null);
+        }
     }
     
     
