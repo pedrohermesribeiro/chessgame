@@ -53,3 +53,4 @@ build/
 # Executáveis locais (importante para o ChessGame)
 stockfish.exe
 stockfish
+src/main/resources/application.properties

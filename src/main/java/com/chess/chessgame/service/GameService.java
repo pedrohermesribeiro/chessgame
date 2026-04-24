@@ -2289,14 +2289,27 @@ public class GameService {
         if(!game.isWhiteTurn()) {
         	Long index = 2L;
             GameDTO gameDTO = this.getGameDTO(gameId);
-            
-            String bookMove = checkmateService.applyMoveCheckMate(index, gameDTO);
-            boolean typeCheck = makeDectecdTypeCheckMatePastor(gameId,bookMove);
-            System.err.println("Preparação para checkmate simples selecionado próxima jogada: " + bookMove + " estagio 15");
-            if (bookMove != null && typeCheck == true) {
-                System.err.println("Preparação para checkmate simples selecionado: " + bookMove + " estagio 15");
-                Game updatedGame = makeMove(gameId, bookMove);
-                return gameRepository.save(updatedGame);
+            boolean queenMustRetreat = isQueenThreatenedOnH4(gameDTO.getBoard());
+            String queenRetreatMove = findForcedQueenRetreatMoveFromH4(gameId, gameDTO.getBoard());
+            if (queenRetreatMove != null) {
+            	checkmateService.saveIsApplyCheck(index);
+            	System.err.println("Retirada forçada da dama em h4 selecionada: " + queenRetreatMove + " estagio 14");
+            	Game updatedGame = makeMove(gameId, queenRetreatMove);
+            	return gameRepository.save(updatedGame);
+            }
+
+            if (queenMustRetreat) {
+            	checkmateService.saveIsApplyCheck(index);
+            	System.err.println("Book de checkmate interrompido: dama preta em h4 ameaçada estagio 14");
+            } else {
+                String bookMove = checkmateService.applyMoveCheckMate(index, gameDTO);
+                boolean typeCheck = makeDectecdTypeCheckMatePastor(gameId,bookMove);
+                System.err.println("Preparação para checkmate simples selecionado próxima jogada: " + bookMove + " estagio 15");
+                if (bookMove != null && typeCheck == true) {
+                    System.err.println("Preparação para checkmate simples selecionado: " + bookMove + " estagio 15");
+                    Game updatedGame = makeMove(gameId, bookMove);
+                    return gameRepository.save(updatedGame);
+                }
             }
         }
 
@@ -2418,6 +2431,9 @@ public class GameService {
     
     @SuppressWarnings("unused")
 	private boolean makeDectecdTypeCheckMatePastor(Long gameId, String notation) {
+    	if (notation == null || notation.length() < 4) {
+    		return false;
+    	}
     	String to = notation.substring(2, 4);
     	GameDTO gameDTO = this.getGameDTO(gameId);
     	Long index = 2L;
@@ -2429,6 +2445,14 @@ public class GameService {
     		}
     	}
         Map<String, Piece> board = gameDTO.getBoard();
+        if (isQueenThreatenedOnH4(board)) {
+        	checkmateService.saveIsApplyCheck(index);
+        	return false;
+        }
+        if (shouldBlockQueenMoveToH4(notation, board)) {
+        	checkmateService.saveIsApplyCheck(index);
+        	return false;
+        }
         
         boolean isContinue = true;
         Piece piecePawn = new Piece();
@@ -2502,6 +2526,71 @@ public class GameService {
 
    
         return false;
+    }
+
+    private boolean shouldBlockQueenMoveToH4(String notation, Map<String, Piece> board) {
+    	if (board == null || notation == null || !notation.startsWith("d8h4")) {
+    		return false;
+    	}
+    	return hasWhiteThreatAgainstQueenOnH4(board);
+    }
+
+    private String findForcedQueenRetreatMoveFromH4(Long gameId, Map<String, Piece> board) {
+    	if (!isQueenThreatenedOnH4(board)) {
+    		return null;
+    	}
+
+    	Piece queen = board.get("h4");
+    	if (queen == null || queen.getColor() != PieceColor.BLACK || queen.getType() != PieceType.QUEEN) {
+    		return null;
+    	}
+
+    	String fallbackRetreatMove = null;
+    	List<String> legalMoves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
+    	for (String moveNotation : legalMoves) {
+    		if (moveNotation == null || !moveNotation.startsWith("h4")) {
+    			continue;
+    		}
+    		if (fallbackRetreatMove == null) {
+    			fallbackRetreatMove = moveNotation;
+    		}
+
+    		String to = moveNotation.substring(2, 4);
+    		Map<String, Piece> tempBoard = deepCopyBoard(board);
+    		tempBoard.put(to, tempBoard.remove("h4"));
+    		if (!isSquareUnderAttack(tempBoard, to, PieceColor.WHITE)) {
+    			return moveNotation;
+    		}
+    	}
+
+    	return fallbackRetreatMove;
+    }
+
+    private boolean isQueenThreatenedOnH4(Map<String, Piece> board) {
+    	if (board == null) {
+    		return false;
+    	}
+
+    	Piece queenH4 = board.get("h4");
+    	if (queenH4 == null || queenH4.getColor() != PieceColor.BLACK || queenH4.getType() != PieceType.QUEEN) {
+    		return false;
+    	}
+
+    	return hasWhiteThreatAgainstQueenOnH4(board);
+    }
+
+    private boolean hasWhiteThreatAgainstQueenOnH4(Map<String, Piece> board) {
+    	if (board == null) {
+    		return false;
+    	}
+
+    	Piece knightF3 = board.get("f3");
+    	if (knightF3 != null && knightF3.getColor() == PieceColor.WHITE && knightF3.getType() == PieceType.KNIGHT) {
+    		return true;
+    	}
+
+    	Piece pawnG3 = board.get("g3");
+    	return pawnG3 != null && pawnG3.getColor() == PieceColor.WHITE && pawnG3.getType() == PieceType.PAWN;
     }
    
     private String makeNewMoveDetectCheckMate(Long gameId,Map<String,Piece> board) {
