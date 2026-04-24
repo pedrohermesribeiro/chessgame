@@ -2316,7 +2316,10 @@ public class GameService {
             	checkmateService.saveIsApplyCheck(index);
             	System.err.println("Book de checkmate interrompido: dama preta em h4 ameaçada estagio 14");
             } else {
-                String bookMove = checkmateService.applyMoveCheckMate(index, gameDTO);
+                String bookMove = filterReactiveMoveCandidate(
+                        checkmateService.applyMoveCheckMate(index, gameDTO),
+                        moves,
+                        "checkmate-book");
                 boolean typeCheck = makeDectecdTypeCheckMatePastor(gameId,bookMove);
                 System.err.println("Preparação para checkmate simples selecionado próxima jogada: " + bookMove + " estagio 15");
                 if (bookMove != null && typeCheck == true) {
@@ -2344,7 +2347,7 @@ public class GameService {
         }
 
         
-        String capture = makeListAttackblack(gameId);
+        String capture = filterReactiveMoveCandidate(makeListAttackblack(gameId), moves, "simple-capture");
         System.err.println("Defesa simples selecionada: " + capture + " Estagio 12");
         if(capture != null && !inCheck) {
         	
@@ -2353,7 +2356,7 @@ public class GameService {
             return gameRepository.save(updatedGame);
         }
                         
-        String attack = makeListCaptureCounterattack();
+        String attack = filterReactiveMoveCandidate(makeListCaptureCounterattack(), moves, "counterattack");
         System.err.println("Defesa simples selecionada: " + attack + " Estagio 07");
         if(attack != null && !inCheck) {
         	
@@ -2362,7 +2365,7 @@ public class GameService {
             return gameRepository.save(updatedGame);
         }
         
-        String blackDefense = makeListAttackWhite(gameId);
+        String blackDefense = filterReactiveMoveCandidate(makeListAttackWhite(gameId), moves, "black-defense");
         //System.err.println("Defesa simples selecionada: " + blackDefense + " Estagio 10");
         if(blackDefense != null && !inCheck) {
         	
@@ -2371,7 +2374,7 @@ public class GameService {
             return gameRepository.save(updatedGame);
         }
         
-        String knightDefense = makeMoveBlackPiecesKnight();
+        String knightDefense = filterReactiveMoveCandidate(makeMoveBlackPiecesKnight(), moves, "knight-defense");
         System.err.println("Defesa simples selecionada por movimentação do cavalo: " + knightDefense + " Estagio 05");
         if(knightDefense != null && !inCheck) {
         	
@@ -2380,7 +2383,7 @@ public class GameService {
             return gameRepository.save(updatedGame);
         }
         
-        String bestDefense = makeMoveBlackPieces(gameId);
+        String bestDefense = filterReactiveMoveCandidate(makeMoveBlackPieces(gameId), moves, "best-defense");
         System.err.println("Defesa simples selecionada pelo valor Min da peça: " + bestDefense + " Estagio 09");
         if(bestDefense != null && !inCheck) {
         	
@@ -2393,7 +2396,7 @@ public class GameService {
         System.out.println("Usando hard-computer-move como fallback...");
        
         //Verificar se é a mesma tentativa de checkmate
-        String newMove = makeNewMoveDetectCheckMate(gameId,board);
+        String newMove = filterReactiveMoveCandidate(makeNewMoveDetectCheckMate(gameId,board), moves, "checkmate-detect");
         if(newMove != null) {
          Game updateGame = makeMove(gameId,newMove);
          return updateGame;
@@ -2549,6 +2552,19 @@ public class GameService {
     		return false;
     	}
     	return hasWhiteThreatAgainstQueenOnH4(board);
+    }
+
+    private String filterReactiveMoveCandidate(String moveNotation, List<String> legalMoves, String source) {
+    	if (moveNotation == null || legalMoves == null) {
+    		return moveNotation;
+    	}
+
+    	if (legalMoves.contains(moveNotation)) {
+    		return moveNotation;
+    	}
+
+    	System.err.println("Descartando jogada pseudo-legal no reactive-move: " + moveNotation + " origem: " + source);
+    	return null;
     }
 
     private String findReactiveQueenSafeCaptureMove(Map<String, Piece> board, List<String> moves) {

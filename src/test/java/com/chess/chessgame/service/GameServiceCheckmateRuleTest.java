@@ -265,6 +265,32 @@ class GameServiceCheckmateRuleTest {
         assertNull(move);
     }
 
+    @Test
+    void shouldDiscardPseudoLegalReactiveMoveCandidate() {
+        String move = ReflectionTestUtils.invokeMethod(
+            gameService,
+            "filterReactiveMoveCandidate",
+            "h7h6",
+            java.util.List.of("h7h5", "g7g6"),
+            "best-defense"
+        );
+
+        assertNull(move);
+    }
+
+    @Test
+    void shouldKeepReactiveMoveCandidateWhenItIsLegal() {
+        String move = ReflectionTestUtils.invokeMethod(
+            gameService,
+            "filterReactiveMoveCandidate",
+            "h7h5",
+            java.util.List.of("h7h5", "g7g6"),
+            "best-defense"
+        );
+
+        assertTrue("h7h5".equals(move));
+    }
+
     private GameDTO gameDtoWithBlockingPieces(Piece knightF3, Piece pawnG3) {
         Map<String, Piece> board = new HashMap<>();
         board.put("d8", piece(PieceType.QUEEN, PieceColor.BLACK));
