@@ -132,18 +132,23 @@ button:disabled {
 
 /* Coordenadas */
 .board-coordinates {
+    --board-cell-size: 60px;
+    --coordinate-edge-size: 30px;
+    --coordinate-font-size: 12px;
+    --file-label-nudge-x: -25px;
     display: grid;
     grid-template-areas:
         "top-empty top top-empty2"
         "left board right"
         "bottom-empty bottom bottom-empty2";
-    grid-template-columns: 30px 480px 30px;
-    grid-template-rows: 30px 480px 30px;
+    grid-template-columns: var(--coordinate-edge-size) calc(var(--board-cell-size) * 8) var(--coordinate-edge-size);
+    grid-template-rows: var(--coordinate-edge-size) calc(var(--board-cell-size) * 8) var(--coordinate-edge-size);
 }
 
 .top-coordinates,
 .bottom-coordinates {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--coordinate-edge-size) repeat(8, var(--board-cell-size)) var(--coordinate-edge-size);
     grid-area: top;
 }
 
@@ -153,9 +158,10 @@ button:disabled {
 
 .left-coordinates,
 .right-coordinates {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: repeat(8, var(--board-cell-size));
     grid-area: left;
+    width: var(--coordinate-edge-size);
 }
 
 .right-coordinates {
@@ -166,42 +172,46 @@ button:disabled {
 .bottom-coordinates span,
 .left-coordinates span,
 .right-coordinates span {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    text-align: center;
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--coordinate-font-size);
     font-weight: bold;
     color: #333;
+    box-sizing: border-box;
 }
 
 .top-coordinates span:first-child,
 .top-coordinates span:last-child,
 .bottom-coordinates span:first-child,
 .bottom-coordinates span:last-child {
-    width: 30px;
+    width: var(--coordinate-edge-size);
+}
+
+.top-coordinates span:not(:first-child):not(:last-child),
+.bottom-coordinates span:not(:first-child):not(:last-child) {
+    transform: translateX(var(--file-label-nudge-x));
 }
 
 /* Tabuleiro */
 #chessboard {
     grid-area: board;
     display: grid;
-    grid-template-columns: repeat(8, 60px);
-    grid-template-rows: repeat(8, 60px);
+    grid-template-columns: repeat(8, var(--board-cell-size));
+    grid-template-rows: repeat(8, var(--board-cell-size));
     gap: 0;
-    width: 480px;
-    height: 480px;
+    width: calc(var(--board-cell-size) * 8);
+    height: calc(var(--board-cell-size) * 8);
     background-color: #fff;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     border-radius: 8px;
     overflow: hidden;
-    margin-left: 15px;
 }
 
 /* Casas do tabuleiro */
 .square {
-    width: 60px;
-    height: 60px;
+    width: var(--board-cell-size);
+    height: var(--board-cell-size);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -281,26 +291,11 @@ button:disabled {
 
 /* Tablets (até 1024px) */
 @media (max-width: 1024px) {
-    #chessboard {
-        grid-template-columns: repeat(8, 50px);
-        grid-template-rows: repeat(8, 50px);
-        width: 400px;
-        height: 400px;
-    }
-
-    .top-coordinates span,
-    .bottom-coordinates span,
-    .left-coordinates span,
-    .right-coordinates span {
-        width: 50px;
-        height: 25px;
-        line-height: 25px;
-        font-size: 11px;
-    }
-
     .board-coordinates {
-        grid-template-columns: 25px 400px 25px;
-        grid-template-rows: 25px 400px 25px;
+        --board-cell-size: 50px;
+        --coordinate-edge-size: 25px;
+        --coordinate-font-size: 11px;
+        --file-label-nudge-x: -4.5px;
     }
 }
 
@@ -320,26 +315,11 @@ button:disabled {
         max-width: 250px;
     }
 
-    #chessboard {
-        grid-template-columns: repeat(8, 40px);
-        grid-template-rows: repeat(8, 40px);
-        width: 320px;
-        height: 320px;
-    }
-
-    .top-coordinates span,
-    .bottom-coordinates span,
-    .left-coordinates span,
-    .right-coordinates span {
-        width: 40px;
-        height: 20px;
-        line-height: 20px;
-        font-size: 10px;
-    }
-
     .board-coordinates {
-        grid-template-columns: 20px 320px 20px;
-        grid-template-rows: 20px 320px 20px;
+        --board-cell-size: 40px;
+        --coordinate-edge-size: 20px;
+        --coordinate-font-size: 10px;
+        --file-label-nudge-x: -3px;
     }
 
     .game-button,
