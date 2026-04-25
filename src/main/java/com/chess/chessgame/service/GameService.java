@@ -3610,7 +3610,23 @@ public class GameService {
         String sideToMove = game.isWhiteTurn() ? "WHITE" : "BLACK";
         String boardJson = game.getBoardState();
 
-        String moveNotation = aiService.suggestMove(boardJson, sideToMove);
+        // Add context for better AI performance
+        List<Move> movesList = findMoveByIdGame(gameId);
+        StringBuilder historyBuilder = new StringBuilder();
+        for (Move m : movesList) {
+            if (m.getFrom() != null && m.getTo() != null) {
+                historyBuilder.append(m.getFrom()).append(m.getTo()).append(" ");
+            }
+        }
+        String moveHistory = historyBuilder.toString().trim();
+
+        Map<String, Piece> board = deserializeBoardState(boardJson);
+        String fen = generateFEN(board, game.isWhiteTurn());
+        boolean inCheck = game.isInCheck();
+
+        System.out.println("O3-Mini context - History length: " + moveHistory.length() + ", FEN: " + fen);
+
+        String moveNotation = aiService.suggestMove(boardJson, sideToMove, moveHistory, fen, inCheck);
 
         // Reaproveita tua lógica atual de movimento:
         return makeMove(gameId, moveNotation);
@@ -3624,7 +3640,24 @@ public class GameService {
             throw new IllegalArgumentException("Não é a vez das pretas!");
         }
 
-        String moveNotation = aiService.suggestHardMove(game.getBoardState(), "BLACK");
+        // Add rich context for better AI decisions
+        List<Move> movesList = findMoveByIdGame(gameId);
+        StringBuilder historyBuilder = new StringBuilder();
+        for (Move m : movesList) {
+            if (m.getFrom() != null && m.getTo() != null) {
+                historyBuilder.append(m.getFrom()).append(m.getTo()).append(" ");
+            }
+        }
+        String moveHistory = historyBuilder.toString().trim();
+
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        String fen = generateFEN(board, game.isWhiteTurn());  // false for black's turn
+        boolean inCheck = game.isInCheck();
+
+        System.out.println("ChatGPT-Hard context - History: " + (moveHistory.isEmpty() ? "none" : moveHistory.substring(0, Math.min(50, moveHistory.length()))) +
+                          ", FEN: " + fen + ", InCheck: " + inCheck);
+
+        String moveNotation = aiService.suggestHardMove(game.getBoardState(), "BLACK", moveHistory, fen, inCheck);
         validateChatGPTHardMove(game, moveNotation);
         return makeMove(gameId, moveNotation);
     }

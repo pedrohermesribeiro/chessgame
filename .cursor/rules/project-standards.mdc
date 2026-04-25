@@ -1,0 +1,34 @@
+---
+description: Padrões gerais do projeto Chess Game (sempre aplicar)
+alwaysApply: true
+---
+
+# Padrões do Projeto Chess Game
+
+## Estrutura Geral
+- Este é um jogo de xadrez com backend Java Spring Boot + frontend vanilla JS/HTML/CSS
+- Backend: controllers, services, repositories, DTOs
+- Frontend: `src/main/resources/static/` (index.html, style.css, script logic)
+
+## Convenções de Código
+
+**Java:**
+- Use records quando possível para DTOs
+- Mantenha services focados (GameService, AIService, CheckmateService, StockfishService)
+- Use enums para `PieceType`, `PieceColor`, `GameStatus`
+- Sempre valide movimentos antes de aplicar
+
+**Frontend:**
+- Prefixe classes CSS com `chess-` (chess-board, chess-piece, chess-square)
+- Mantenha lógica de movimento no JavaScript do index.html
+- Use `data-*` attributes para estado das peças (`data-piece`, `data-square`)
+- Suporte múltiplos níveis de dificuldade (incluindo Stockfish)
+
+**Commits:**
+- Use branches como `feature/`, `fix/`, `refactor/`
+- Descreva claramente mudanças em movimentos, UI responsiva ou integração com engines
+
+**Checkmate & AI:**
+- Há integração com Stockfish (`/stockfish-move`)
+- Há lógica de defensive-move quando o rei está em xeque
+- Padrões de checkmate estão em `CheckmatePattern`

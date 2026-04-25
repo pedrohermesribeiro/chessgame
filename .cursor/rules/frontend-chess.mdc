@@ -1,0 +1,48 @@
+---
+description: Padrões para o frontend do jogo de xadrez (HTML, CSS e JS)
+globs: src/main/resources/static/**/*
+alwaysApply: false
+---
+
+# Frontend Chess Game
+
+## HTML (index.html)
+- Mantenha a estrutura do tabuleiro como grid CSS (8x8)
+- Use IDs claros: `board`, `status`, `move-history`, `difficulty-select`
+- Botões de controle devem ter IDs descritivos (`new-game`, `undo-move`)
+- O cursor está frequentemente na lógica de movimentos (linha ~348)
+
+## CSS (style.css)
+- Use variáveis CSS para cores do tabuleiro (`--light-square`, `--dark-square`)
+- Mantenha o tabuleiro responsivo (veja branch `feature/responsive-promotion-fix`)
+- Estilos de peças devem usar Unicode ou SVG
+- Hover effects e highlight de movimentos válidos são importantes
+
+## JavaScript
+- Separe claramente:
+  - `makeMove()` / `handleSquareClick()`
+  - Lógica de IA (`getComputerMove()`)
+  - Renderização do tabuleiro (`renderBoard()`)
+- Sempre atualize `gameData` após movimentos
+- Suporte a:
+  - Promoção de peão
+  - Castling (roque)
+  - En passant
+  - Xeque e xeque-mate
+
+## Exemplo de Boa Prática
+
+**✅ BOM:**
+```javascript
+// Highlight de movimentos válidos
+validMoves.forEach(move => {
+    const square = document.querySelector(`[data-square="${move.to}"]`);
+    square.classList.add('highlight-valid');
+});
+```
+
+**❌ RUIM:**
+```javascript
+// Misturar DOM manipulation com lógica de jogo inline
+document.getElementById('board').innerHTML = '...';
+```

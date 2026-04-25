@@ -1,0 +1,45 @@
+---
+description: Padrões para o backend Java Spring Boot do Chess Game
+globs: src/main/java/**/*.java
+alwaysApply: false
+---
+
+# Backend Java - Chess Game
+
+## Estrutura de Pacotes
+- `controller/` → REST endpoints (`GameController`, `HomeController`)
+- `service/` → Lógica de negócio (`GameService`, `AIService`, `CheckmateService`, `StockfishService`, `MovePieceService`)
+- `repository/` → JPA repositories
+- `model/` → Entidades e Enums (`Game`, `Move`, `Piece`, `PieceType`, `PieceColor`)
+- `dto/` → Data Transfer Objects (`MoveRequest`, `BoardStateDTO`, etc.)
+
+## Boas Práticas
+
+### Services
+- `GameService` deve orquestrar o fluxo principal
+- `CheckmateService` cuida de detecção de mate e padrões
+- `StockfishService` integra com engine de xadrez
+- `AIService` lida com diferentes níveis de dificuldade
+
+### Movimentos
+- Sempre validar legalidade antes de executar (`MovePieceService`)
+- Usar DTOs para comunicação (`MovePieceDTO`, `LastMoveDTO`)
+- Tratar casos especiais: castling, promotion, en passant
+
+### Exemplo de Padrão Bom
+
+```java
+// ✅ BOM
+@Service
+@RequiredArgsConstructor
+public class GameService {
+    public GameState makeMove(MoveRequest request) {
+        validateMove(request);
+        Game game = gameRepository.findById(request.getGameId());
+        // ... lógica
+        return buildGameState(game);
+    }
+}
+```
+
+Mantenha o código limpo, bem documentado e com testes (existe `GameServiceCheckmateRuleTest`).

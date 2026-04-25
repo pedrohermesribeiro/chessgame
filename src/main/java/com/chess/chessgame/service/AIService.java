@@ -30,69 +30,69 @@ public class AIService {
      * @return lance no formato "e2e4"
      */
     public String suggestMove(String boardStateJson, String sideToMove) {
+        // Backward compatibility - call with empty context
+        return suggestMove(boardStateJson, sideToMove, "", "N/A", false);
+    }
+
+    public String suggestMove(String boardStateJson, String sideToMove, String moveHistory, String fen, boolean inCheck) {
         String prompt = """
             You are a chess engine embedded in a Java game.
 
-            You receive the chess board as a JSON map:
-            {
-              "a2": {"type": "PAWN", "color": "WHITE", "valuePiece": 1, "codigo": 1},
-              "b1": {"type": "KNIGHT", "color": "WHITE", ...},
-              ...
-            }
-
-            It is %s to move.
+            CONTEXT:
+            - Board JSON: provided below
+            - Move history (UCI): %s
+            - FEN: %s
+            - In check: %s
+            - To move: %s
 
             Rules:
-            - Return ONLY ONE move.
-            - The move must be a legal chess move.
-            - Format: exactly 4 or 5 characters:
-              * Normal moves: "e2e4", "g1f3", etc.
-              * Castling: "e1g1", "e1c1", "e8g8", or "e8c8".
-              * Promotion: 5 chars, e.g. "e7e8q" (promote to queen).
-            - Do not explain the move, do not add any text, no spaces, no newlines.
-            - Just output the move notation.
-            """.formatted(sideToMove);
+            - Return ONLY ONE move in UCI format (4-5 chars: e2e4, g1f3, e7e8q, e1g1 etc.). No other text.
+            - Move must be legal.
+            - Consider history, position evaluation, and tactics.
+            """.formatted(
+                moveHistory != null && !moveHistory.isEmpty() ? moveHistory : "None",
+                fen,
+                inCheck,
+                sideToMove
+            );
 
         return suggestMoveWithPrompt(prompt, boardStateJson);
     }
 
-    public String suggestHardMove(String boardStateJson, String sideToMove) {
+    public String suggestHardMove(String boardStateJson, String sideToMove, String moveHistory, String fen, boolean inCheck) {
         String prompt = """
-            You are a chess engine embedded in a Java game.
+            You are a grandmaster chess engine embedded in a Java Spring Boot chess application.
 
-            You receive the chess board as a JSON map:
-            {
-              "a2": {"type": "PAWN", "color": "WHITE", "valuePiece": 1, "codigo": 1},
-              "b1": {"type": "KNIGHT", "color": "WHITE", ...},
-              ...
-            }
+            CONTEXT PROVIDED:
+            - Board state: JSON map of positions to pieces (see below)
+            - Move history (in UCI format): %s
+            - Current FEN notation: %s
+            - Black is in check: %s
+            - Side to move: %s (you are playing as BLACK in hard mode)
 
-            It is %s to move.
-            In this mode you must play as BLACK only.
+            Rules for your response:
+            - Return ONLY the move in exact UCI notation (4 or 5 characters). Examples: "e2e4", "g1f3", "e7e8q", "e1g1" (castling), "e8c8" (queenside).
+            - NO explanations, no text, no markdown, no newlines, no extra spaces.
+            - The move MUST be 100%% legal based on the provided board, history, and chess rules.
+            - Validate against castling rights, en passant, promotions, pins, checks.
 
-            Rules:
-            - Return ONLY ONE move.
-            - The move must be a legal chess move for BLACK.
-            - Format: exactly 4 or 5 characters:
-              * Normal moves: "e2e4", "g1f3", etc.
-              * Castling: "e1g1", "e1c1", "e8g8", or "e8c8".
-              * Promotion: 5 chars, e.g. "e7e8q" (promote to queen).
-            - Do not explain the move, do not add any text, no spaces, no newlines.
-            - Just output the move notation.
+            STRATEGY (prioritized):
+            1. If in check, find the best legal move that resolves the check (capture, block, or king move).
+            2. Look for checkmate or forced wins.
+            3. Capture unprotected or higher-value pieces with favorable exchanges.
+            4. Prioritize king safety, piece activity, center control, development.
+            5. Use pawn structure, avoid isolated/doubled pawns when possible.
+            6. Consider the move history to recognize patterns, avoid blunders, build on previous plans.
+            7. Standard piece values: Pawn=1, Knight/Bishop=3, Rook=5, Queen=9, King=100.
 
-            Move selection priorities:
-            - Protect the BLACK king above everything else.
-            - If BLACK is in check, only choose a legal move that escapes check.
-            - Avoid moves that allow immediate checkmate or lose major material for no compensation.
-            - Prefer checkmate when available, then forcing checks, then strong tactical threats.
-            - Prefer winning material with favorable exchanges.
-            - Use these piece values when evaluating trades: pawn=1, knight=3, bishop=3, rook=5, queen=9, king=priceless.
-            - Value safe development, control of the center, king safety, and protection of attacked BLACK pieces.
-            - Prefer castling when it improves BLACK king safety.
-            - Prefer promotion to queen when a pawn can safely promote.
-            - Avoid random pawn moves or passive moves if a stronger active move exists.
-            - Never return a move for WHITE pieces.
-            """.formatted(sideToMove);
+            Use the full context (FEN + history + board JSON) to evaluate the position accurately like a strong player would.
+            Play the single best move for BLACK.
+            """.formatted(
+                moveHistory != null && !moveHistory.isEmpty() ? moveHistory : "No previous moves",
+                fen != null ? fen : "N/A",
+                inCheck,
+                sideToMove
+            );
 
         return suggestMoveWithPrompt(prompt, boardStateJson);
     }
