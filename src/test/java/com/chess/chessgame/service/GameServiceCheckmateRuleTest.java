@@ -242,6 +242,57 @@ class GameServiceCheckmateRuleTest {
     }
 
     @Test
+    void shouldDefendBlackRookWhenUnderAttackInReactiveMove() {
+        Long gameId = 1L;
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(boardWithRookOnA8UnderAttack()));
+
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeReactiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertTrue(result.getLastMove().startsWith("a8"));
+        verify(gameService).makeMove(eq(gameId), argThat(move -> move != null && move.startsWith("a8")));
+    }
+
+    @Test
+    void shouldKeepQueenDefensePriorityBeforeRookDefense() {
+        Long gameId = 1L;
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(boardWithQueenAndRookUnderAttack()));
+
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeReactiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertTrue(result.getLastMove().startsWith("g4h3"));
+        verify(gameService).makeMove(eq(gameId), eq("g4h3"));
+        verify(gameService, never()).makeMove(eq(gameId), argThat(move -> move != null && move.startsWith("a8")));
+    }
+
+    @Test
     void shouldFindSafeQueenCaptureEvenWhenQueenIsNotUnderAttack() {
         String move = ReflectionTestUtils.invokeMethod(
             gameService,
@@ -350,6 +401,26 @@ class GameServiceCheckmateRuleTest {
         board.put("e1", piece(PieceType.KING, PieceColor.WHITE));
         board.put("e2", piece(PieceType.ROOK, PieceColor.WHITE));
         board.put("h4", piece(PieceType.PAWN, PieceColor.WHITE));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithRookOnA8UnderAttack() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("a8", piece(PieceType.ROOK, PieceColor.BLACK));
+        board.put("e8", piece(PieceType.KING, PieceColor.BLACK));
+        board.put("e1", piece(PieceType.KING, PieceColor.WHITE));
+        board.put("b7", piece(PieceType.BISHOP, PieceColor.WHITE));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithQueenAndRookUnderAttack() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("g4", piece(PieceType.QUEEN, PieceColor.BLACK));
+        board.put("a8", piece(PieceType.ROOK, PieceColor.BLACK));
+        board.put("e8", piece(PieceType.KING, PieceColor.BLACK));
+        board.put("e1", piece(PieceType.KING, PieceColor.WHITE));
+        board.put("h3", piece(PieceType.PAWN, PieceColor.WHITE));
+        board.put("b7", piece(PieceType.BISHOP, PieceColor.WHITE));
         return board;
     }
 

@@ -2344,6 +2344,13 @@ public class GameService {
                 Game updatedGame = makeMove(gameId, queenDefenseMove);
                 return gameRepository.save(updatedGame);
             }
+
+            String rookDefenseMove = findReactiveRookDefenseMove(board, moves);
+            if (rookDefenseMove != null) {
+                System.err.println("Defesa de torre preta selecionada no reactive-move: " + rookDefenseMove);
+                Game updatedGame = makeMove(gameId, rookDefenseMove);
+                return gameRepository.save(updatedGame);
+            }
         }
 
         
@@ -2654,6 +2661,56 @@ public class GameService {
     		if (score > bestScore) {
     			bestScore = score;
     			bestMove = moveNotation;
+    		}
+    	}
+
+    	return bestMove;
+    }
+
+    private String findReactiveRookDefenseMove(Map<String, Piece> board, List<String> moves) {
+    	if (board == null || moves == null || moves.isEmpty()) {
+    		return null;
+    	}
+
+    	String bestMove = null;
+    	int bestScore = Integer.MIN_VALUE;
+    	for (Map.Entry<String, Piece> entry : board.entrySet()) {
+    		String rookSquare = entry.getKey();
+    		Piece rook = entry.getValue();
+    		if (rook == null || rook.getColor() != PieceColor.BLACK || rook.getType() != PieceType.ROOK
+    				|| !isSquareUnderAttack(board, rookSquare, PieceColor.WHITE)) {
+    			continue;
+    		}
+
+    		for (String moveNotation : moves) {
+    			if (moveNotation == null || moveNotation.length() < 4 || !moveNotation.startsWith(rookSquare)) {
+    				continue;
+    			}
+
+    			String from = moveNotation.substring(0, 2);
+    			String to = moveNotation.substring(2, 4);
+    			Piece movingPiece = board.get(from);
+    			if (movingPiece == null || movingPiece.getColor() != PieceColor.BLACK
+    					|| movingPiece.getType() != PieceType.ROOK) {
+    				continue;
+    			}
+
+    			Map<String, Piece> tempBoard = deepCopyBoard(board);
+    			tempBoard.put(to, tempBoard.remove(from));
+    			if (isSquareUnderAttack(tempBoard, to, PieceColor.WHITE)) {
+    				continue;
+    			}
+
+    			int score = 1000;
+    			Piece capturedPiece = board.get(to);
+    			if (capturedPiece != null && capturedPiece.getColor() == PieceColor.WHITE) {
+    				score += capturedPiece.getValuePiece() * 20;
+    			}
+
+    			if (score > bestScore) {
+    				bestScore = score;
+    				bestMove = moveNotation;
+    			}
     		}
     	}
 
