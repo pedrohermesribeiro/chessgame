@@ -13,6 +13,62 @@
             text-align: center;
             height: 25px;
         }
+        .game-message.pending-join {
+            color: #1565c0;
+        }
+        .join-request-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        .join-request-dialog {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 24px 28px;
+            max-width: 360px;
+            width: 90%;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+            text-align: center;
+            font-family: inherit;
+        }
+        .join-request-dialog h3 {
+            margin: 0 0 12px;
+            color: #222;
+        }
+        .join-request-dialog p {
+            margin: 0 0 18px;
+            color: #444;
+            font-size: 16px;
+        }
+        .join-request-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+        .join-request-actions button {
+            min-width: 100px;
+            padding: 8px 16px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .join-request-actions .accept-btn {
+            background-color: #2e7d32;
+            color: #fff;
+        }
+        .join-request-actions .reject-btn {
+            background-color: #c62828;
+            color: #fff;
+        }
+        .join-request-actions button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -37,7 +93,9 @@
     <div class="game-inputs">
         <input type="text" id="playerWhite" class="player-input" placeholder="Jogador Branco">
         <input type="text" id="playerBlack" class="player-input" placeholder="Jogador Preto">
+        <input type="number" id="existingGameId" class="player-input" placeholder="ID do jogo existente" min="1">
         <button type="button" onclick="createGame()" class="game-button create-button">Criar Jogo</button>
+        <button type="button" onclick="joinExistingGame('BLACK')" class="game-button create-button">Entrar como Pretas</button>
         <button type="button" onclick="resetGame()" id="reset-game" class="game-button reset-button">Reiniciar Jogo</button>
     </div>
     <div id="game-controls">
@@ -72,6 +130,16 @@
         <h3>Escolha a promoção:</h3>
         <div id="promotionOptions"></div>
     </div>
+    <div id="joinRequestOverlay" class="join-request-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="joinRequestTitle">
+        <div id="joinRequestDialog" class="join-request-dialog">
+            <h3 id="joinRequestTitle">Solicitação de entrada</h3>
+            <p id="joinRequestText"></p>
+            <div class="join-request-actions">
+                <button type="button" id="joinAcceptBtn" class="accept-btn">Aceitar</button>
+                <button type="button" id="joinRejectBtn" class="reject-btn">Recusar</button>
+            </div>
+        </div>
+    </div>
     <script>
 
         let possibleMoves = [];
@@ -91,6 +159,7 @@
         };
         const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
         const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+        const computerModes = ["vsComputer", "hard-computer", "hard-computer-2", "vsAIo3", "chatGPT-Hard"];
         let currentBoardData = {};
         let gameId = null;
         let selectedSquare = null;
@@ -102,22 +171,189 @@
         rookWhiteExecutado = false;
         rookBlackExecutado = false;
         let checkmate = false;
+        let gameMode = document.getElementById("mode-select").value;
+        let multiSyncTimer = null;
+        let lastProcessedMove = null;
+        let waitingForJoinApproval = false;
+        let handlingJoinRequest = false;
+        let isMultiHost = false;
+        let joinRequestModalOpen = false;
+        let originalDocumentTitle = null;
+        let lastGameSignature = null;
 
         document.addEventListener("DOMContentLoaded", function() {  
             console.log("A página foi carregada completamente.");  
+            const acceptBtn = document.getElementById('joinAcceptBtn');
+            const rejectBtn = document.getElementById('joinRejectBtn');
+            if (acceptBtn) {
+                acceptBtn.addEventListener('click', () => respondToJoinRequest(true));
+            }
+            if (rejectBtn) {
+                rejectBtn.addEventListener('click', () => respondToJoinRequest(false));
+            }
             resetGame();
         });
 
+        function isComputerMode(mode) {
+            return computerModes.includes(mode);
+        }
 
-        function createGame() {
+        function stopMultiSync() {
+            if (multiSyncTimer) {
+                clearInterval(multiSyncTimer);
+                multiSyncTimer = null;
+            }
+        }
+
+        function startMultiSync() {
+            stopMultiSync();
+            if (gameMode !== "multi" || !gameId) {
+                return;
+            }
+            multiSyncTimer = setInterval(() => {
+                if (!isProcessing && gameId && !checkmate) {
+                    updateGameState(gameId);
+                }
+            }, 1500);
+        }
+
+        function setPlayerColor(color) {
+            playerColor = color;
+            document.getElementById("player-color").value = color;
+        }
+
+        async function closeCurrentMultiGame(reason) {
+            if (gameMode !== "multi" || !gameId) {
+                return;
+            }
+
+            try {
+                await fetch(`/games/${gameId}/close-multi?reason=${encodeURIComponent(reason)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                console.error("Erro ao comunicar encerramento da partida multi:", error);
+            }
+        }
+
+        function showJoinRequestModal(gameData) {
+            const overlay = document.getElementById('joinRequestOverlay');
+            const text = document.getElementById('joinRequestText');
+            const acceptBtn = document.getElementById('joinAcceptBtn');
+            const rejectBtn = document.getElementById('joinRejectBtn');
+            if (!overlay || !text || !acceptBtn || !rejectBtn) {
+                return;
+            }
+            const requesterName = (gameData && gameData.multiJoinRequesterName) || "Outro jogador";
+            const requesterColor = gameData && gameData.multiJoinRequesterColor === "WHITE" ? "brancas" : "pretas";
+            text.textContent = `${requesterName} quer entrar como ${requesterColor}. Aceitar?`;
+            acceptBtn.disabled = false;
+            rejectBtn.disabled = false;
+            overlay.style.display = 'flex';
+            joinRequestModalOpen = true;
+            const messageEl = document.getElementById('gameMessage');
+            if (messageEl) {
+                messageEl.textContent = `Pedido de entrada de ${requesterName} (${requesterColor}).`;
+                messageEl.classList.add('pending-join');
+            }
+            if (originalDocumentTitle === null) {
+                originalDocumentTitle = document.title;
+            }
+            document.title = "(!) Solicitação de entrada - Chess Game";
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (AudioCtx) {
+                    const ctx = new AudioCtx();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.frequency.value = 880;
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.45);
+                    osc.onended = () => { try { ctx.close(); } catch (_) {} };
+                }
+            } catch (_) {
+                // Audio é apenas um indicador opcional; ignorar falhas.
+            }
+        }
+
+        function hideJoinRequestModal() {
+            const overlay = document.getElementById('joinRequestOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+            joinRequestModalOpen = false;
+            if (originalDocumentTitle !== null) {
+                document.title = originalDocumentTitle;
+                originalDocumentTitle = null;
+            }
+            const messageEl = document.getElementById('gameMessage');
+            if (messageEl) {
+                messageEl.classList.remove('pending-join');
+            }
+        }
+
+        async function respondToJoinRequest(accept) {
+            const acceptBtn = document.getElementById('joinAcceptBtn');
+            const rejectBtn = document.getElementById('joinRejectBtn');
+            if (acceptBtn) acceptBtn.disabled = true;
+            if (rejectBtn) rejectBtn.disabled = true;
+
+            if (!gameId) {
+                hideJoinRequestModal();
+                handlingJoinRequest = false;
+                return;
+            }
+
+            const endpoint = accept ? "join-approve" : "join-reject";
+            try {
+                const response = await fetch(`/games/${gameId}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) {
+                    throw new Error("Erro ao responder solicitação de entrada.");
+                }
+                document.getElementById('gameMessage').textContent = accept
+                    ? "Oponente aceito. Partida multi conectada."
+                    : "Solicitação de entrada recusada.";
+            } catch (error) {
+                console.error("Erro ao responder solicitação de entrada:", error);
+                const messageEl = document.getElementById('gameMessage');
+                if (messageEl) {
+                    messageEl.textContent = error.message || "Erro ao responder solicitação de entrada.";
+                }
+            } finally {
+                hideJoinRequestModal();
+                handlingJoinRequest = false;
+            }
+        }
+
+        async function createGame() {
             gameMode = document.getElementById("mode-select").value;
+            if (gameId && !confirm("Já existe uma partida carregada. Deseja criar uma nova partida e reiniciar o estado atual?")) {
+                return;
+            }
+            if (gameId) {
+                await closeCurrentMultiGame("O oponente encerrou esta partida para iniciar outra.");
+            }
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" || gameMode === "chatGPT-Hard" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = isComputerMode(gameMode) ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('gameMessage').textContent = "";
             checkmate = false;
+            waitingForJoinApproval = false;
+            handlingJoinRequest = false;
+            hideJoinRequestModal();
+            isMultiHost = gameMode === 'multi';
+            stopMultiSync();
 
-            if (gameMode === 'single' || gameMode === 'vsComputer' || gameMode === 'hard-computer' || gameMode === 'hard-computer-2' || gameMode === 'chatGPT-Hard') {
-                playerColor = 'WHITE'; // Jogador controla as brancas
+            if (gameMode === 'single' || isComputerMode(gameMode) || gameMode === 'multi') {
+                setPlayerColor('WHITE'); // Jogador controla as brancas ao criar uma partida
             }
 
             console.log("Valor gameMode:", gameMode, "valor playerColor:", playerColor);
@@ -126,8 +362,10 @@
 
             // Limpar estado anterior
             gameId = null;
+            lastGameSignature = null;
             boardState = {};
             selectedSquare = null;
+            lastProcessedMove = null;
             document.getElementById('chessboard').innerHTML = '';
             document.getElementById('gameMessage').innerHTML = '';
 
@@ -145,11 +383,14 @@
                 gameId = data.id;
                 isWhiteTurn = data.whiteTurn;
                 currentBoardData = data.boardState;
+                lastProcessedMove = data.lastMove || null;
+                document.getElementById('existingGameId').value = gameId;
                 document.getElementById('gameIdDisplay').textContent = `Game ID: ${gameId}`;
                 document.getElementById('gameStatus').textContent = `Status: ${data.status}`;
                 updateTurnButtons();
                 createBoard(JSON.parse(data.boardState));
                 updateGameState(gameId);
+                startMultiSync();
                 // Se for vsComputer e começar com pretas, acionar movimento do computador
                 /*if ((gameMode === 'vsComputer' || gameMode === 'hard-computer') && !isWhiteTurn) {
                     makeComputerMove(gameId);
@@ -161,16 +402,132 @@
             });
         }
 
+        async function joinExistingGame(preferredColor = null) {
+            gameMode = document.getElementById("mode-select").value;
+            if (gameMode !== "multi") {
+                document.getElementById('gameMessage').textContent = "Entrada em jogo existente está disponível apenas no modo Multi Browser.";
+                return;
+            }
+
+            const requestedGameId = document.getElementById('existingGameId').value || gameId;
+            if (!requestedGameId) {
+                document.getElementById('gameMessage').textContent = "Informe o ID do jogo existente.";
+                return;
+            }
+
+            const selectedColor = preferredColor || document.getElementById("player-color").value || "BLACK";
+            isMultiHost = false;
+            handlingJoinRequest = false;
+            hideJoinRequestModal();
+            stopMultiSync();
+
+            try {
+                const requesterName = document.getElementById("playerBlack").value || "Player2";
+                const response = await fetch(`/games/${requestedGameId}/join-request?requesterName=${encodeURIComponent(requesterName)}&requesterColor=${encodeURIComponent(selectedColor)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) {
+                    throw new Error("Não foi possível solicitar entrada neste jogo.");
+                }
+
+                const data = await response.json();
+                gameId = data.id;
+                setPlayerColor(selectedColor);
+                isWhiteTurn = data.whiteTurn;
+                checkmate = data.checkmate === true;
+                currentBoardData = data.board || JSON.parse(data.boardState || '{}');
+                lastProcessedMove = data.lastMove || null;
+                lastGameSignature = null;
+                waitingForJoinApproval = true;
+                document.getElementById('existingGameId').value = gameId;
+                document.getElementById('gameIdDisplay').textContent = `Game ID: ${gameId}`;
+                document.getElementById('gameStatus').textContent = `Status: ${data.status}`;
+                updateTurnButtons();
+                document.getElementById('gameMessage').textContent = "Solicitação enviada. Aguardando aceite do oponente.";
+                startMultiSync();
+            } catch (error) {
+                console.error("Erro ao entrar no jogo existente:", error);
+                document.getElementById('gameMessage').textContent = error.message || "Erro ao entrar no jogo existente.";
+            }
+        }
+
+        async function handleMultiLobbyState(gameData) {
+            if (gameMode !== "multi") {
+                return false;
+            }
+
+            if (gameData.multiGameClosed) {
+                checkmate = true;
+                waitingForJoinApproval = false;
+                isMultiHost = false;
+                handlingJoinRequest = false;
+                hideJoinRequestModal();
+                stopMultiSync();
+                document.getElementById('chessboard').style.pointerEvents = 'none';
+                document.getElementById('gameMessage').textContent = gameData.multiCloseReason || "O oponente encerrou esta partida.";
+                document.getElementById('gameStatus').textContent = "Status: Partida encerrada pelo oponente";
+                return true;
+            }
+
+            if (waitingForJoinApproval) {
+                if (gameData.multiJoinRejected) {
+                    waitingForJoinApproval = false;
+                    stopMultiSync();
+                    document.getElementById('gameMessage').textContent = "Entrada recusada pelo oponente.";
+                    return true;
+                }
+
+                if (gameData.multiJoinApproved) {
+                    waitingForJoinApproval = false;
+                    document.getElementById('gameMessage').textContent = `Conectado como ${playerColor === 'WHITE' ? 'brancas' : 'pretas'}.`;
+                    return false;
+                }
+
+                document.getElementById('gameMessage').textContent = "Aguardando aceite do oponente.";
+                return true;
+            }
+
+            if (isMultiHost && gameData.multiJoinRequested && !handlingJoinRequest) {
+                handlingJoinRequest = true;
+                showJoinRequestModal(gameData);
+                return true;
+            }
+
+            if (isMultiHost && joinRequestModalOpen && !gameData.multiJoinRequested) {
+                hideJoinRequestModal();
+                handlingJoinRequest = false;
+                const messageEl = document.getElementById('gameMessage');
+                if (messageEl) {
+                    messageEl.textContent = "O solicitante desistiu antes de obter resposta.";
+                }
+                return true;
+            }
+
+            if (handlingJoinRequest && joinRequestModalOpen) {
+                return true;
+            }
+
+            return false;
+        }
+
 
         function resetGame() {
+            stopMultiSync();
+            hideJoinRequestModal();
+            handlingJoinRequest = false;
             rookWhiteExecutado = false;
             rookBlackExecutado = false;
             checkmate = false;
+            waitingForJoinApproval = false;
+            isMultiHost = false;
             boardState = {};
             selectedSquare = null;
+            lastProcessedMove = null;
+            lastGameSignature = null;
             gameMode = document.getElementById("mode-select").value;
             const white = document.getElementById("playerWhite").value || "Player1";
-            const black = gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "hard-computer-2" || gameMode === "chatGPT-Hard" ? "Computer" : document.getElementById("playerBlack").value || "Player2";
+            const black = isComputerMode(gameMode) ? "Computer" : document.getElementById("playerBlack").value || "Player2";
             document.getElementById('chessboard').innerHTML = '';
             document.getElementById('gameMessage').innerHTML = '';
            /* if (!gameId) {
@@ -220,17 +577,57 @@
                     if (piece) {
                         const key = `${piece.color}_${piece.type}`;
                         const img = document.createElement('img');
-                        img.src = `/img/${pieceImages[key]}?v=${Date.now()}`;
+                        img.src = `/img/${pieceImages[key]}`;
                         img.width = 48;
                         img.height = 48;
+                        img.draggable = false;
+                        img.alt = key;
                         img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
                         square.appendChild(img);
+                        square.dataset.piece = key;
+                    } else {
+                        square.dataset.piece = '';
                     }
                     square.addEventListener('click', () => handleSquareClick(pos));
                     board.appendChild(square);
                 });
             });
             console.log('Tabuleiro renderizado com sucesso');
+        }
+
+        function syncBoardFromState(boardData) {
+            const board = document.getElementById('chessboard');
+            if (!board || board.children.length === 0) {
+                createBoard(boardData);
+                return;
+            }
+            currentBoardData = boardData;
+            ranks.forEach(row => {
+                files.forEach(col => {
+                    const pos = col + row;
+                    const square = board.querySelector(`.square[data-pos="${pos}"]`);
+                    if (!square) return;
+                    const piece = currentBoardData[pos];
+                    const expectedKey = piece ? `${piece.color}_${piece.type}` : '';
+                    const currentKey = square.dataset.piece || '';
+                    if (expectedKey === currentKey) return;
+                    if (!expectedKey) {
+                        square.innerHTML = '';
+                        square.dataset.piece = '';
+                        return;
+                    }
+                    square.innerHTML = '';
+                    const img = document.createElement('img');
+                    img.src = `/img/${pieceImages[expectedKey]}`;
+                    img.width = 48;
+                    img.height = 48;
+                    img.draggable = false;
+                    img.alt = expectedKey;
+                    img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
+                    square.appendChild(img);
+                    square.dataset.piece = expectedKey;
+                });
+            });
         }
 
         async function makeMove(gameId, moveNotation) {
@@ -273,7 +670,7 @@
                 updateGameState(gameId);
                 console.log("Acionando movimento do computador após jogada do jogador.",gameMode,"OI");
                 // Se for modo vsComputer ou hard-computer e for a vez das pretas, acionar o computador
-                if (!isWhiteTurn) {
+                if (!isWhiteTurn && gameMode !== "multi") {
                     if (gameMode === "vsAIo3") {
                         setTimeout(() => triggerAIMoveO3(gameId), 500);
                     } else if (gameMode === "vsComputer" || gameMode === "hard-computer" || gameMode === "chatGPT-Hard") {
@@ -299,6 +696,10 @@
 
         async function makeComputerMove(gameId) {
             if (isProcessing) return;
+            if (gameMode === "multi" || gameMode === "single") {
+                document.getElementById('gameMessage').textContent = "Movimento automático não é usado neste modo.";
+                return;
+            }
             isProcessing = true;
 
             const msg = document.getElementById('gameMessage');
@@ -475,8 +876,20 @@
             console.log('Atualizando estado do jogo para gameId:', gameId);
             try {
                 const response = await fetch(`/games/${gameId}`);
+                if (!response.ok) {
+                    throw new Error("Erro ao buscar estado do jogo.");
+                }
                 const gameData = await response.json();
                 console.log('Dados completos do jogo recebidos:', gameData);
+
+                if (await handleMultiLobbyState(gameData)) {
+                    return;
+                }
+
+                const signature = `${gameData.lastMove}|${gameData.whiteTurn}|${gameData.inCheck}|${gameData.checkmate}|${gameData.multiJoinRequested}|${gameData.multiJoinApproved}|${gameData.multiJoinRejected}|${gameData.multiGameClosed}`;
+                if (lastGameSignature !== null && signature === lastGameSignature) {
+                    return;
+                }
 
                 currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
                 isWhiteTurn = gameData.whiteTurn;
@@ -490,6 +903,9 @@
                     const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
                     toSquare.appendChild(kingElement);                    
                     fromSquare.innerHTML = '';
+                    fromSquare.dataset.piece = '';
+                    const pTo = currentBoardData[to];
+                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
                     rookBlackExecutado = true;
                     console.log("pode realizar o rook preto maior",gameData.lastMove);
                 }
@@ -502,6 +918,9 @@
                     const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
                     toSquare.appendChild(kingElement); 
                     fromSquare.innerHTML = '';
+                    fromSquare.dataset.piece = '';
+                    const pTo = currentBoardData[to];
+                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
                     rookWhiteExecutado = true;
                     console.log("pode realizar o rook branco maior",gameData.lastMove);
                 }
@@ -514,6 +933,9 @@
                     const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
                     toSquare.appendChild(kingElement); 
                     fromSquare.innerHTML = '';
+                    fromSquare.dataset.piece = '';
+                    const pTo = currentBoardData[to];
+                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
                     rookBlackExecutado = true;
                     console.log("pode realizar o rook preto maior",gameData.lastMove);
                 }
@@ -526,27 +948,36 @@
                     const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
                     toSquare.appendChild(kingElement); 
                     fromSquare.innerHTML = '';
+                    fromSquare.dataset.piece = '';
+                    const pTo = currentBoardData[to];
+                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
                     rookWhiteExecutado = true;
                     console.log("pode realizar o rook branco menor",gameData.lastMove);
                 }
 
                 // Atualiza o tabuleiro apenas se o lastMove for diferente do último movimento processado
-                if (gameData.lastMove && gameData.lastMove !== currentBoardData.lastProcessedMove) {
+                if (gameData.lastMove && gameData.lastMove !== lastProcessedMove) {
                     const [from, to] = [gameData.lastMove.slice(0, 2), gameData.lastMove.slice(2, 4)];
                     updateBoard(from, to, null, null, gameData);
-                    currentBoardData.lastProcessedMove = gameData.lastMove; // Armazena o último movimento processado
-                } else {
-                    createBoard(currentBoardData); // Recria o tabuleiro se não houver novo movimento
+                    lastProcessedMove = gameData.lastMove; // Armazena o último movimento processado entre polls
+                    if (gameMode === 'multi') {
+                        syncBoardFromState(currentBoardData);
+                    }
+                } else if (!selectedSquare) {
+                    syncBoardFromState(currentBoardData);
                 }
 
                 if (gameData.checkmate) {
                     checkmate = true;
+                    stopMultiSync();
                     document.getElementById('gameMessage').textContent = "Xeque-mate! Jogo terminado.";
                 } else if (gameData.inCheck) {
                     document.getElementById('gameMessage').textContent = "Xeque!";
                 } else {
                     document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
                 }
+
+                lastGameSignature = signature;
             } catch (error) {
                 console.error('Erro ao atualizar o estado do jogo:', error);
             }
@@ -588,12 +1019,17 @@
                 img.src = `/img/${pieceImages[key]}`;
                 img.width = 48;
                 img.height = 48;
+                img.draggable = false;
+                img.alt = key;
                 img.onerror = () => console.error(`Erro ao carregar ${img.src}`);
                 square.innerHTML = '';
                 square.appendChild(img);
+                square.dataset.piece = key;
                 squareFrom.innerHTML = '';
+                squareFrom.dataset.piece = '';
             
                 console.log(`Detectada promoção no movimento: ${lastMove}`,`${key,img}`,key,`${img.src}`);
+                return;
             } 
                         
             if (rookFrom && rookTo) {
@@ -618,6 +1054,15 @@
                         rookToSquare.appendChild(rookElement);
                         rookFromSquare.innerHTML = '';
                     }
+
+                    const pkCastle = (pos) => {
+                        const p = currentBoardData[pos];
+                        return p ? `${p.color}_${p.type}` : '';
+                    };
+                    fromSquare.dataset.piece = pkCastle(from);
+                    toSquare.dataset.piece = pkCastle(to);
+                    rookFromSquare.dataset.piece = pkCastle(rookFrom);
+                    rookToSquare.dataset.piece = pkCastle(rookTo);
 
                     console.log(`Roque atualizado: Rei ${from} -> ${to}, Torre ${rookFrom} -> ${rookTo}`);
                 }
@@ -656,9 +1101,11 @@
                         capturedFromSquare = document.querySelector(`.square[data-pos="${capturedCol}${row}"]`);
                         if (capturedSquare) {
                             capturedSquare.innerHTML = '';
+                            capturedSquare.dataset.piece = '';
                             console.log(`En passant: peão capturado em ${capturedCol}${capturedRow}`);
                         }
                         capturedFromSquare.innerHTML = '';
+                        capturedFromSquare.dataset.piece = '';
                         console.log(`En passant: peão capturado em}`,capturedFromSquare,capturedRow,capturedFromRow);
                     }
                 }
@@ -670,6 +1117,12 @@
                 
                 if (pieceElement && !promocaoComputer && gameData.status !== 'DRAW') toSquare.appendChild(pieceElement);
                 fromSquare.innerHTML = '';
+                const pkMove = (pos) => {
+                    const p = currentBoardData[pos];
+                    return p ? `${p.color}_${p.type}` : '';
+                };
+                fromSquare.dataset.piece = pkMove(from);
+                toSquare.dataset.piece = pkMove(to);
                 console.log(`Tabuleiro atualizado: ${from} -> ${to}`);
             }
         }
@@ -972,21 +1425,29 @@
 
         document.getElementById('mode-select').addEventListener('change', (e) => {
             gameMode = e.target.value;
+            isMultiHost = false;
+            handlingJoinRequest = false;
+            hideJoinRequestModal();
+            stopMultiSync();
             console.log('Modo de jogo alterado para:', gameMode);
         });
 
         document.getElementById('player1Start').addEventListener('click', () => {
             if (!gameId) {
-                if (gameMode === 'multi') playerColor = 'WHITE';
-                if (gameMode === 'single') playerColor = 'WHITE'; // 👈 adicionar isso
+                if (gameMode === 'multi') setPlayerColor('WHITE');
+                if (gameMode === 'single') setPlayerColor('WHITE'); // 👈 adicionar isso
                 createGame();
             }
         });
 
         document.getElementById('player2Start').addEventListener('click', () => {
             if (!gameId) {
-                if (gameMode === 'multi') playerColor = 'BLACK';
-                if (gameMode === 'single') playerColor = 'BLACK'; // 👈 adicionar isso se quiser testar com pretas
+                if (gameMode === 'multi') {
+                    setPlayerColor('BLACK');
+                    joinExistingGame('BLACK');
+                    return;
+                }
+                if (gameMode === 'single') setPlayerColor('BLACK'); // 👈 adicionar isso se quiser testar com pretas
                 createGame();
             }
         });

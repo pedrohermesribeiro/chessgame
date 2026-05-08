@@ -33,24 +33,7 @@ public class GameController {
         if (gameOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        Game game = gameOpt.get();
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", game.getId());
-        response.put("playerWhite", game.getPlayerWhite());
-        response.put("playerBlack", game.getPlayerBlack());
-        response.put("status", game.getStatus());
-        response.put("whiteTurn", game.isWhiteTurn());
-        response.put("inCheck", game.isInCheck());
-        response.put("checkmate", game.isCheckmate());
-        response.put("lastMove", game.getLastMove());
-        response.put("board", gameService.deserializeBoardState(game.getBoardState()));
-        response.put("whiteKingMoved", game.isWhiteKingMoved());
-        response.put("whiteRookA1Moved", game.isWhiteRookA1Moved());
-        response.put("whiteRookH1Moved", game.isWhiteRookH1Moved());
-        response.put("blackKingMoved", game.isBlackKingMoved());
-        response.put("blackRookA8Moved", game.isBlackRookA8Moved());
-        response.put("blackRookH8Moved", game.isBlackRookH8Moved());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(toGameStateResponse(gameOpt.get()));
     }
     @PostMapping
     public Game createGame(@RequestParam String playerWhite, @RequestParam String playerBlack) {
@@ -74,7 +57,10 @@ public class GameController {
         if (gameOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        Game game = gameOpt.get();
+        return ResponseEntity.ok(toGameStateResponse(gameOpt.get()));
+    }
+
+    private Map<String, Object> toGameStateResponse(Game game) {
         Map<String, Object> response = new HashMap<>();
         response.put("id", game.getId());
         response.put("playerWhite", game.getPlayerWhite());
@@ -91,7 +77,14 @@ public class GameController {
         response.put("blackKingMoved", game.isBlackKingMoved());
         response.put("blackRookA8Moved", game.isBlackRookA8Moved());
         response.put("blackRookH8Moved", game.isBlackRookH8Moved());
-        return ResponseEntity.ok(response);
+        response.put("multiJoinRequested", game.isMultiJoinRequested());
+        response.put("multiJoinRequesterName", game.getMultiJoinRequesterName());
+        response.put("multiJoinRequesterColor", game.getMultiJoinRequesterColor());
+        response.put("multiJoinApproved", game.isMultiJoinApproved());
+        response.put("multiJoinRejected", game.isMultiJoinRejected());
+        response.put("multiGameClosed", game.isMultiGameClosed());
+        response.put("multiCloseReason", game.getMultiCloseReason());
+        return response;
     }
    
     @GetMapping("/{id}/castle-options")
@@ -110,6 +103,47 @@ public class GameController {
      System.err.println("Recebendo solicitação para id/move no gameId: " + id);
      System.out.println("Último movimento, notation nº 1: " + moveRequest);
         return gameService.makeMove(id, moveRequest.getMoveNotation());
+    }
+
+    @PostMapping("/{id}/join-request")
+    public ResponseEntity<Game> requestMultiJoin(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "Player2") String requesterName,
+            @RequestParam(defaultValue = "BLACK") String requesterColor) {
+        try {
+            return ResponseEntity.ok(gameService.requestMultiJoin(id, requesterName, requesterColor));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/{id}/join-approve")
+    public ResponseEntity<Game> approveMultiJoin(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(gameService.approveMultiJoin(id));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/{id}/join-reject")
+    public ResponseEntity<Game> rejectMultiJoin(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(gameService.rejectMultiJoin(id));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/{id}/close-multi")
+    public ResponseEntity<Game> closeMultiGame(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "O oponente encerrou esta partida para iniciar outra.") String reason) {
+        try {
+            return ResponseEntity.ok(gameService.closeMultiGame(id, reason));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
    
     @PostMapping("/{id}/computer-move")

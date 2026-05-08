@@ -51,6 +51,13 @@ import lombok.Data;
 	    private boolean blackRookH8Moved;
 	    private boolean inCheck;
 	    private boolean checkmate;
+	    private boolean multiJoinRequested;
+	    private String multiJoinRequesterName;
+	    private String multiJoinRequesterColor;
+	    private boolean multiJoinApproved;
+	    private boolean multiJoinRejected;
+	    private boolean multiGameClosed;
+	    private String multiCloseReason;
 
 	    @OneToMany(mappedBy = "game") // O campo 'game' deve existir em Move
 	    private List<Move> moves = new ArrayList<>();
@@ -271,6 +278,62 @@ import lombok.Data;
 
 		public void setCheckmate(boolean checkmate) {
 			this.checkmate = checkmate;
+		}
+
+		public boolean isMultiJoinRequested() {
+			return multiJoinRequested;
+		}
+
+		public void setMultiJoinRequested(boolean multiJoinRequested) {
+			this.multiJoinRequested = multiJoinRequested;
+		}
+
+		public String getMultiJoinRequesterName() {
+			return multiJoinRequesterName;
+		}
+
+		public void setMultiJoinRequesterName(String multiJoinRequesterName) {
+			this.multiJoinRequesterName = multiJoinRequesterName;
+		}
+
+		public String getMultiJoinRequesterColor() {
+			return multiJoinRequesterColor;
+		}
+
+		public void setMultiJoinRequesterColor(String multiJoinRequesterColor) {
+			this.multiJoinRequesterColor = multiJoinRequesterColor;
+		}
+
+		public boolean isMultiJoinApproved() {
+			return multiJoinApproved;
+		}
+
+		public void setMultiJoinApproved(boolean multiJoinApproved) {
+			this.multiJoinApproved = multiJoinApproved;
+		}
+
+		public boolean isMultiJoinRejected() {
+			return multiJoinRejected;
+		}
+
+		public void setMultiJoinRejected(boolean multiJoinRejected) {
+			this.multiJoinRejected = multiJoinRejected;
+		}
+
+		public boolean isMultiGameClosed() {
+			return multiGameClosed;
+		}
+
+		public void setMultiGameClosed(boolean multiGameClosed) {
+			this.multiGameClosed = multiGameClosed;
+		}
+
+		public String getMultiCloseReason() {
+			return multiCloseReason;
+		}
+
+		public void setMultiCloseReason(String multiCloseReason) {
+			this.multiCloseReason = multiCloseReason;
 		}
 
 		public List<Move> getMoves() {

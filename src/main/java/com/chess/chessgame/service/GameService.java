@@ -292,7 +292,8 @@ public class GameService {
     public Game createGame(String playerWhite, String playerBlack) {
         movePieceRepository.deleteAll();
 
-        Game game = gameRepository.findById(1L).orElse(new Game());
+        Game game = new Game();
+        game.setId(null);
         game.setPlayerWhite(playerWhite);
         game.setPlayerBlack(playerBlack);
         game.setStatus(GameStatus.IN_PROGRESS);
@@ -308,6 +309,7 @@ public class GameService {
         game.setWhiteRookH1Moved(false);
         game.setMoves(new ArrayList<>());
         game.setBoardStateHistory(new ArrayList<>()); // <— evitar NPE
+        clearMultiLobbyState(game);
         Map<String, Piece> board = initializeBoard();
         game.setBoardState(serializeBoardState(board));
 
@@ -318,6 +320,57 @@ public class GameService {
         for (int i = 0; i < 2; i++) initializeMovePiece(i);
 
         return game;
+    }
+
+    @Transactional
+    public Game requestMultiJoin(Long gameId, String requesterName, String requesterColor) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        game.setMultiJoinRequested(true);
+        game.setMultiJoinRequesterName(requesterName);
+        game.setMultiJoinRequesterColor(requesterColor);
+        game.setMultiJoinApproved(false);
+        game.setMultiJoinRejected(false);
+        return gameRepository.save(game);
+    }
+
+    @Transactional
+    public Game approveMultiJoin(Long gameId) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        game.setMultiJoinRequested(false);
+        game.setMultiJoinApproved(true);
+        game.setMultiJoinRejected(false);
+        return gameRepository.save(game);
+    }
+
+    @Transactional
+    public Game rejectMultiJoin(Long gameId) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        game.setMultiJoinRequested(false);
+        game.setMultiJoinApproved(false);
+        game.setMultiJoinRejected(true);
+        return gameRepository.save(game);
+    }
+
+    @Transactional
+    public Game closeMultiGame(Long gameId, String reason) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        game.setMultiGameClosed(true);
+        game.setMultiCloseReason(reason);
+        return gameRepository.save(game);
+    }
+
+    private void clearMultiLobbyState(Game game) {
+        game.setMultiJoinRequested(false);
+        game.setMultiJoinRequesterName(null);
+        game.setMultiJoinRequesterColor(null);
+        game.setMultiJoinApproved(false);
+        game.setMultiJoinRejected(false);
+        game.setMultiGameClosed(false);
+        game.setMultiCloseReason(null);
     }
     
     public void resetCheckMateRepository() {
