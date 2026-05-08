@@ -2351,6 +2351,13 @@ public class GameService {
                 Game updatedGame = makeMove(gameId, rookDefenseMove);
                 return gameRepository.save(updatedGame);
             }
+
+            String profitableCaptureMove = findProfitableOrEqualBlackCaptureMove(board, moves);
+            if (profitableCaptureMove != null) {
+                System.err.println("Captura vantajosa/equivalente selecionada no reactive-move: " + profitableCaptureMove);
+                Game updatedGame = makeMove(gameId, profitableCaptureMove);
+                return gameRepository.save(updatedGame);
+            }
         }
 
         
@@ -2715,6 +2722,57 @@ public class GameService {
     	}
 
     	return bestMove;
+    }
+
+    private String findProfitableOrEqualBlackCaptureMove(Map<String, Piece> board, List<String> legalMoves) {
+        if (board == null || legalMoves == null || legalMoves.isEmpty()) {
+            return null;
+        }
+
+        String bestMove = null;
+        int bestScore = Integer.MIN_VALUE;
+        int bestCapturedValue = Integer.MIN_VALUE;
+        int bestAttackerValue = Integer.MAX_VALUE;
+
+        for (String moveNotation : legalMoves) {
+            if (moveNotation == null || moveNotation.length() < 4) {
+                continue;
+            }
+
+            String from = moveNotation.substring(0, 2);
+            String to = moveNotation.substring(2, 4);
+            Piece attacker = board.get(from);
+            Piece target = board.get(to);
+            if (attacker == null || attacker.getColor() != PieceColor.BLACK || target == null
+                    || target.getColor() != PieceColor.WHITE) {
+                continue;
+            }
+
+            Map<String, Piece> tempBoard = deepCopyBoard(board);
+            tempBoard.put(to, tempBoard.remove(from));
+            if (isKingInCheck(tempBoard, PieceColor.BLACK)) {
+                continue;
+            }
+
+            boolean canBeRecaptured = isSquareUnderAttack(tempBoard, to, PieceColor.WHITE);
+            int capturedValue = target.getValuePiece();
+            int attackerValue = attacker.getValuePiece();
+            int score = canBeRecaptured ? capturedValue - attackerValue : capturedValue;
+            if (score < 0) {
+                continue;
+            }
+
+            if (score > bestScore
+                    || (score == bestScore && capturedValue > bestCapturedValue)
+                    || (score == bestScore && capturedValue == bestCapturedValue && attackerValue < bestAttackerValue)) {
+                bestScore = score;
+                bestCapturedValue = capturedValue;
+                bestAttackerValue = attackerValue;
+                bestMove = moveNotation;
+            }
+        }
+
+        return bestMove;
     }
 
     private String findForcedQueenRetreatMoveFromH4(Long gameId, Map<String, Piece> board) {
@@ -3605,8 +3663,8 @@ public class GameService {
    //com avaliação de pontuação para optar a de menor risco.
     public Game makeDefensiveMove(Long gameId) {
         System.out.println("Iniciando makeDefensiveMove para gameId: " + gameId);
-        List<BadOpenig> badOpenig = badOpeningRepository.findAll();
-        List<MovePiece> movesPiece = movePieceRepository.findAll();
+        List<BadOpenig> badOpenig = badOpeningRepository != null ? badOpeningRepository.findAll() : new ArrayList<>();
+        List<MovePiece> movesPiece = movePieceRepository != null ? movePieceRepository.findAll() : new ArrayList<>();
         System.err.println("Total de Registros movePiece: " + movesPiece.size() + " Total BadOpening: " + badOpenig.size());
         Optional<Game> gameOpt = gameRepository.findById(gameId);
         if (gameOpt.isEmpty()) {
@@ -3623,24 +3681,288 @@ public class GameService {
         }
         Map<String, Piece> board = deserializeBoardState(game.getBoardState());
         List<String> moves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
+        boolean blackInCheck = isKingInCheck(board, PieceColor.BLACK);
+        if (moves.isEmpty()) {
+            System.out.println("Nenhum movimento disponível para as pretas!");
+            game.setStatus(blackInCheck ? GameStatus.WHITE_WINS : GameStatus.DRAW);
+            return gameRepository.save(game);
+        }
+
+        if (blackInCheck) {
+            String kingDefense = selectDefensiveMove(gameId, board, moves);
+            if (kingDefense != null) {
+                System.out.println("Defesa do rei preto selecionada: " + kingDefense);
+                return makeMove(gameId, kingDefense);
+            }
+            System.out.println("Xeque-mate detectado!");
+            game.setStatus(GameStatus.WHITE_WINS);
+            return gameRepository.save(game);
+        }
+
+        Optional<CheckmatePattern> activePlan = checkmateService.findActiveCurrentCheckmatePlan();
+        boolean finalPlannedMove = activePlan.map(this::isFinalCurrentCheckmateMove).orElse(false);
+        if (!finalPlannedMove) {
+            String priorityDefense = findCheckmatePriorityDefenseMove(board, moves);
+            if (priorityDefense != null) {
+                System.out.println("Prioridade defensiva selecionada antes do plano de checkmate: " + priorityDefense);
+                return makeMove(gameId, priorityDefense);
+            }
+        }
+
+        if (activePlan.isPresent()) {
+            Game plannedMove = tryExecuteCurrentCheckmatePlan(gameId, board, moves, activePlan.get());
+            if (plannedMove != null) {
+                return plannedMove;
+            }
+
+            List<String> replannedMoves = findCurrentCheckmatePlanMoves(gameId, board);
+            if (!replannedMoves.isEmpty()) {
+                CheckmatePattern replanned = checkmateService.saveCurrentCheckmatePlan(replannedMoves);
+                Game replannedMove = tryExecuteCurrentCheckmatePlan(gameId, board, moves, replanned);
+                if (replannedMove != null) {
+                    return replannedMove;
+                }
+            }
+
+            checkmateService.abortCurrentCheckmatePlan();
+        } else if (countPiecesByColor(board, PieceColor.WHITE) <= 12) {
+            List<String> plannedMoves = findCurrentCheckmatePlanMoves(gameId, board);
+            if (!plannedMoves.isEmpty()) {
+                CheckmatePattern pattern = checkmateService.saveCurrentCheckmatePlan(plannedMoves);
+                Game plannedMove = tryExecuteCurrentCheckmatePlan(gameId, board, moves, pattern);
+                if (plannedMove != null) {
+                    return plannedMove;
+                }
+                checkmateService.abortCurrentCheckmatePlan();
+            }
+        }
+
         String bestDefense = selectDefensiveMove(gameId, board, moves);
         if (bestDefense != null) {
             System.out.println("Defesa selecionada: " + bestDefense);
             Game updatedGame = makeMove(gameId, bestDefense);
             System.err.println("Movimento defensivo aplicado: " + updatedGame.getLastMove());
             return updatedGame;
-        } else {
-            System.out.println("Nenhuma jogada defensiva encontrada, verificando xeque-mate...");
-            if (isKingInCheck(board, PieceColor.BLACK) && moves.isEmpty()) {
-                System.out.println("Xeque-mate detectado!");
-                game.setStatus(GameStatus.WHITE_WINS);
-                return gameRepository.save(game);
-            }
-            System.out.println("Usando hard-computer-move como fallback...");
-            Game hardGame = makeHardAIMove(gameId);
-            System.out.println("Movimento hard aplicado: " + hardGame.getLastMove());
-            return hardGame;
         }
+
+        System.out.println("Usando hard-computer-move como fallback...");
+        Game hardGame = makeHardAIMove(gameId);
+        System.out.println("Movimento hard aplicado: " + hardGame.getLastMove());
+        return hardGame;
+    }
+
+    private String findCheckmatePriorityDefenseMove(Map<String, Piece> board, List<String> moves) {
+        String queenDefense = findReactiveQueenDefenseMove(board, moves);
+        if (queenDefense != null) {
+            return queenDefense;
+        }
+
+        String rookDefense = findReactiveRookDefenseMove(board, moves);
+        if (rookDefense != null) {
+            return rookDefense;
+        }
+
+        String knightDefense = findReactivePieceDefenseMove(board, moves, PieceType.KNIGHT);
+        if (knightDefense != null) {
+            return knightDefense;
+        }
+
+        return findReactivePieceDefenseMove(board, moves, PieceType.BISHOP);
+    }
+
+    private String findReactivePieceDefenseMove(Map<String, Piece> board, List<String> moves, PieceType pieceType) {
+        if (board == null || moves == null || moves.isEmpty()) {
+            return null;
+        }
+
+        String bestMove = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            String threatenedSquare = entry.getKey();
+            Piece threatenedPiece = entry.getValue();
+            if (threatenedPiece == null || threatenedPiece.getColor() != PieceColor.BLACK
+                    || threatenedPiece.getType() != pieceType
+                    || !isSquareUnderAttack(board, threatenedSquare, PieceColor.WHITE)) {
+                continue;
+            }
+
+            for (String moveNotation : moves) {
+                if (moveNotation == null || moveNotation.length() < 4 || !moveNotation.startsWith(threatenedSquare)) {
+                    continue;
+                }
+
+                String to = moveNotation.substring(2, 4);
+                Map<String, Piece> tempBoard = deepCopyBoard(board);
+                tempBoard.put(to, tempBoard.remove(threatenedSquare));
+                if (isSquareUnderAttack(tempBoard, to, PieceColor.WHITE)) {
+                    continue;
+                }
+
+                int score = 1000;
+                Piece capturedPiece = board.get(to);
+                if (capturedPiece != null && capturedPiece.getColor() == PieceColor.WHITE) {
+                    score += capturedPiece.getValuePiece() * 20;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = moveNotation;
+                }
+            }
+        }
+
+        return bestMove;
+    }
+
+    private Game tryExecuteCurrentCheckmatePlan(Long gameId, Map<String, Piece> board, List<String> legalMoves,
+            CheckmatePattern pattern) {
+        if (!isCurrentCheckmatePlanCompatible(gameId, board, legalMoves, pattern)) {
+            System.err.println("Plano checkmate-atual incompatível com o tabuleiro atual.");
+            return null;
+        }
+
+        String moveNotation = nextMoveFromPattern(pattern);
+        Game updatedGame = makeMove(gameId, moveNotation);
+        checkmateService.advanceCurrentCheckmatePlan();
+
+        int nextIndex = pattern.getIndexNextMove() == null ? 1 : pattern.getIndexNextMove() + 1;
+        if (pattern.getMoves() == null || nextIndex >= pattern.getMoves().size()) {
+            if (!updatedGame.isCheckmate()) {
+                checkmateService.abortCurrentCheckmatePlan();
+            } else {
+                checkmateService.abortCurrentCheckmatePlan();
+            }
+        }
+
+        return updatedGame;
+    }
+
+    private boolean isCurrentCheckmatePlanCompatible(Long gameId, Map<String, Piece> board, List<String> legalMoves,
+            CheckmatePattern pattern) {
+        String nextMove = nextMoveFromPattern(pattern);
+        if (nextMove == null || nextMove.length() < 4 || legalMoves == null || !legalMoves.contains(nextMove)) {
+            return false;
+        }
+
+        return canApplyPlannedSequence(gameId, board, remainingMoves(pattern));
+    }
+
+    private boolean isFinalCurrentCheckmateMove(CheckmatePattern pattern) {
+        if (pattern == null || pattern.getMoves() == null || pattern.getMoves().isEmpty()) {
+            return false;
+        }
+        int index = pattern.getIndexNextMove() == null ? 0 : pattern.getIndexNextMove();
+        return index >= pattern.getMoves().size() - 1;
+    }
+
+    private String nextMoveFromPattern(CheckmatePattern pattern) {
+        if (pattern == null || pattern.getMoves() == null || pattern.getMoves().isEmpty()) {
+            return null;
+        }
+        int index = pattern.getIndexNextMove() == null ? 0 : pattern.getIndexNextMove();
+        if (index < 0 || index >= pattern.getMoves().size()) {
+            return null;
+        }
+        return pattern.getMoves().get(index);
+    }
+
+    private List<String> remainingMoves(CheckmatePattern pattern) {
+        List<String> remaining = new ArrayList<>();
+        if (pattern == null || pattern.getMoves() == null) {
+            return remaining;
+        }
+        int index = pattern.getIndexNextMove() == null ? 0 : pattern.getIndexNextMove();
+        for (int i = index; i < pattern.getMoves().size(); i++) {
+            remaining.add(pattern.getMoves().get(i));
+        }
+        return remaining;
+    }
+
+    private boolean canApplyPlannedSequence(Long gameId, Map<String, Piece> board, List<String> plannedMoves) {
+        Map<String, Piece> tempBoard = deepCopyBoard(board);
+        for (String moveNotation : plannedMoves) {
+            List<String> legalMoves = getAllPossibleMoves(gameId, tempBoard, PieceColor.BLACK);
+            if (!legalMoves.contains(moveNotation) || !applyMoveOnBoard(tempBoard, moveNotation)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<String> findCurrentCheckmatePlanMoves(Long gameId, Map<String, Piece> board) {
+        List<String> sequence = searchCheckmateSequence(gameId, deepCopyBoard(board), new ArrayList<>(), 3);
+        return sequence == null ? new ArrayList<>() : sequence;
+    }
+
+    private List<String> searchCheckmateSequence(Long gameId, Map<String, Piece> board, List<String> prefix, int depthLeft) {
+        if (depthLeft == 0) {
+            return null;
+        }
+
+        List<String> moves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
+        moves.sort((left, right) -> Integer.compare(checkmateAttackerPriority(board, right), checkmateAttackerPriority(board, left)));
+        for (String moveNotation : moves) {
+            Map<String, Piece> tempBoard = deepCopyBoard(board);
+            if (!applyMoveOnBoard(tempBoard, moveNotation)) {
+                continue;
+            }
+
+            List<String> candidate = new ArrayList<>(prefix);
+            candidate.add(moveNotation);
+            if (isKingInCheck(tempBoard, PieceColor.WHITE) && isCheckmate(tempBoard, PieceColor.WHITE)) {
+                return candidate;
+            }
+
+            List<String> deeper = searchCheckmateSequence(gameId, tempBoard, candidate, depthLeft - 1);
+            if (deeper != null) {
+                return deeper;
+            }
+        }
+
+        return null;
+    }
+
+    private int checkmateAttackerPriority(Map<String, Piece> board, String moveNotation) {
+        if (moveNotation == null || moveNotation.length() < 4) {
+            return 0;
+        }
+        Piece piece = board.get(moveNotation.substring(0, 2));
+        if (piece == null || piece.getColor() != PieceColor.BLACK) {
+            return 0;
+        }
+        return switch (piece.getType()) {
+            case QUEEN -> 400;
+            case ROOK -> 300;
+            case BISHOP -> 200;
+            case KNIGHT -> 100;
+            default -> 10;
+        };
+    }
+
+    private int countPiecesByColor(Map<String, Piece> board, PieceColor color) {
+        int count = 0;
+        for (Piece piece : board.values()) {
+            if (piece != null && piece.getColor() == color) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean applyMoveOnBoard(Map<String, Piece> board, String moveNotation) {
+        if (board == null || moveNotation == null || moveNotation.length() < 4) {
+            return false;
+        }
+        String from = moveNotation.substring(0, 2);
+        String to = moveNotation.substring(2, 4);
+        Piece movingPiece = board.get(from);
+        Piece targetPiece = board.get(to);
+        if (movingPiece == null || movingPiece.getColor() != PieceColor.BLACK
+                || (targetPiece != null && targetPiece.getColor() == PieceColor.BLACK)) {
+            return false;
+        }
+        board.put(to, movingPiece);
+        board.remove(from);
+        return !isKingInCheck(board, PieceColor.BLACK);
     }
     
     /*@Transactional

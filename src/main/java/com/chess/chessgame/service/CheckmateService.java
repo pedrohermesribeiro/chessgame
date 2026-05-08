@@ -1,7 +1,9 @@
 package com.chess.chessgame.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,8 @@ import com.chess.chessgame.repository.CheckmatePatternRepository;
 
 @Service
 public class CheckmateService {
+
+    public static final String CURRENT_CHECKMATE_NAME = "checkmate-atual";
 
     @Autowired
     private CheckmatePatternRepository checkmateRepo;
@@ -48,6 +52,9 @@ public class CheckmateService {
         
         String moveCheck = null;
         CheckmatePattern patterns = checkmateRepo.findById(id).orElse(null);
+        if (patterns == null || patterns.getMoves() == null || patterns.getMoves().isEmpty()) {
+            return null;
+        }
         if(patterns.getIndexLastMove() == patterns.getMoves().size()) {
             patterns.setIndexLastMove(0);
         }
@@ -64,6 +71,54 @@ public class CheckmateService {
             checkmateRepo.save(patterns);
         }
         return moveCheck;
+    }
+
+    public Optional<CheckmatePattern> findActiveCurrentCheckmatePlan() {
+        return checkmateRepo.findFirstByName(CURRENT_CHECKMATE_NAME)
+                .filter(CheckmatePattern::isApply);
+    }
+
+    public CheckmatePattern saveCurrentCheckmatePlan(List<String> moves) {
+        CheckmatePattern pattern = checkmateRepo.findFirstByName(CURRENT_CHECKMATE_NAME)
+                .orElseGet(CheckmatePattern::new);
+        pattern.setName(CURRENT_CHECKMATE_NAME);
+        pattern.setWinningColor(PieceColor.BLACK.toString());
+        pattern.setMoves(new ArrayList<>(moves));
+        pattern.setIndexNextMove(0);
+        pattern.setApply(true);
+        return checkmateRepo.save(pattern);
+    }
+
+    public String nextCurrentCheckmateMove() {
+        return findActiveCurrentCheckmatePlan()
+                .map(this::nextMove)
+                .orElse(null);
+    }
+
+    public void advanceCurrentCheckmatePlan() {
+        findActiveCurrentCheckmatePlan().ifPresent(pattern -> {
+            pattern.setIndexNextMove(pattern.getIndexNextMove() + 1);
+            checkmateRepo.save(pattern);
+        });
+    }
+
+    public void abortCurrentCheckmatePlan() {
+        checkmateRepo.findFirstByName(CURRENT_CHECKMATE_NAME).ifPresent(pattern -> {
+            pattern.setApply(false);
+            pattern.setIndexNextMove(0);
+            checkmateRepo.save(pattern);
+        });
+    }
+
+    private String nextMove(CheckmatePattern pattern) {
+        if (pattern == null || pattern.getMoves() == null || pattern.getMoves().isEmpty()) {
+            return null;
+        }
+        int index = pattern.getIndexNextMove() == null ? 0 : pattern.getIndexNextMove();
+        if (index < 0 || index >= pattern.getMoves().size()) {
+            return null;
+        }
+        return pattern.getMoves().get(index);
     }
     
     public void saveIsApplyCheck(Long idCheck) {

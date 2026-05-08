@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -293,6 +294,93 @@ class GameServiceCheckmateRuleTest {
     }
 
     @Test
+    void shouldChooseProfitableBlackCaptureAfterPriorities() {
+        Long gameId = 1L;
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(boardWithProfitableKnightCapture()));
+
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeReactiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertTrue("f6g4".equals(result.getLastMove()));
+        verify(gameService).makeMove(eq(gameId), eq("f6g4"));
+    }
+
+    @Test
+    void shouldChooseEqualExchangeBlackCaptureAfterPriorities() {
+        Long gameId = 1L;
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(boardWithEqualKnightCapture()));
+
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeReactiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertTrue("f6g4".equals(result.getLastMove()));
+        verify(gameService).makeMove(eq(gameId), eq("f6g4"));
+    }
+
+    @Test
+    void shouldRejectBadBlackCaptureAfterPriorities() {
+        String move = ReflectionTestUtils.invokeMethod(
+            gameService,
+            "findProfitableOrEqualBlackCaptureMove",
+            boardWithBadQueenCapture(),
+            java.util.List.of("g4h6")
+        );
+
+        assertNull(move);
+    }
+
+    @Test
+    void shouldKeepRookDefenseBeforeProfitableCapture() {
+        Long gameId = 1L;
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(boardWithRookThreatAndProfitableCapture()));
+
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeReactiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertTrue(result.getLastMove().startsWith("a8"));
+        verify(gameService, never()).makeMove(eq(gameId), eq("f6g4"));
+    }
+
+    @Test
     void shouldFindSafeQueenCaptureEvenWhenQueenIsNotUnderAttack() {
         String move = ReflectionTestUtils.invokeMethod(
             gameService,
@@ -340,6 +428,90 @@ class GameServiceCheckmateRuleTest {
         );
 
         assertTrue("h7h5".equals(move));
+    }
+
+    @Test
+    void shouldCreateCurrentCheckmatePlanWhenWhiteHasAtMostTwelvePieces() {
+        Long gameId = 1L;
+        Game game = gameWithBoard(gameId, boardWithCurrentCheckmateInOne());
+        Game movedGame = movedGame(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(checkmateService.findActiveCurrentCheckmatePlan()).thenReturn(Optional.empty());
+        when(checkmateService.saveCurrentCheckmatePlan(any())).thenAnswer(invocation -> activePattern(invocation.getArgument(0)));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeDefensiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        verify(checkmateService).saveCurrentCheckmatePlan(argThat(moves -> moves != null && !moves.isEmpty()));
+        verify(gameService).makeMove(eq(gameId), eq(result.getLastMove()));
+    }
+
+    @Test
+    void shouldExecuteActiveCurrentCheckmatePlanWithoutCountingWhitePiecesAgain() {
+        Long gameId = 1L;
+        Game game = gameWithBoard(gameId, boardWithCurrentCheckmateInOneAndManyWhitePieces());
+        Game movedGame = movedGame(gameId);
+        CheckmatePattern activePlan = activePattern(List.of("g3g2"));
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(checkmateService.findActiveCurrentCheckmatePlan()).thenReturn(Optional.of(activePlan));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeDefensiveMove(gameId);
+
+        assertTrue("g3g2".equals(result.getLastMove()));
+        verify(checkmateService, never()).saveCurrentCheckmatePlan(any());
+        verify(gameService).makeMove(eq(gameId), eq("g3g2"));
+    }
+
+    @Test
+    void shouldReplanCurrentCheckmateWhenActivePlanIsIncompatible() {
+        Long gameId = 1L;
+        Game game = gameWithBoard(gameId, boardWithCurrentCheckmateInOne());
+        Game movedGame = movedGame(gameId);
+        CheckmatePattern incompatiblePlan = activePattern(List.of("a8a1"));
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        when(checkmateService.findActiveCurrentCheckmatePlan()).thenReturn(Optional.of(incompatiblePlan));
+        when(checkmateService.saveCurrentCheckmatePlan(any())).thenAnswer(invocation -> activePattern(invocation.getArgument(0)));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeDefensiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertFalse("a8a1".equals(result.getLastMove()));
+        verify(checkmateService).saveCurrentCheckmatePlan(argThat(moves -> moves != null && !moves.isEmpty()));
+        verify(gameService, never()).makeMove(eq(gameId), eq("a8a1"));
+    }
+
+    @Test
+    void shouldResolveBlackKingCheckBeforeExecutingCurrentCheckmatePlan() {
+        Long gameId = 1L;
+        Game game = gameWithBoard(gameId, boardWithBlackKingInCheckAndCurrentPlanAvailable());
+        Game movedGame = movedGame(gameId);
+
+        when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        doAnswer(invocation -> {
+            movedGame.setLastMove(invocation.getArgument(1));
+            return movedGame;
+        }).when(gameService).makeMove(eq(gameId), anyString());
+
+        Game result = gameService.makeDefensiveMove(gameId);
+
+        assertNotNull(result.getLastMove());
+        assertFalse("g3g2".equals(result.getLastMove()));
+        verify(gameService, never()).makeMove(eq(gameId), eq("g3g2"));
     }
 
     private GameDTO gameDtoWithBlockingPieces(Piece knightF3, Piece pawnG3) {
@@ -424,6 +596,43 @@ class GameServiceCheckmateRuleTest {
         return board;
     }
 
+    private Map<String, Piece> boardWithProfitableKnightCapture() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("f6", valuedPiece(PieceType.KNIGHT, PieceColor.BLACK, 3));
+        board.put("e8", valuedPiece(PieceType.KING, PieceColor.BLACK, 1000));
+        board.put("e1", valuedPiece(PieceType.KING, PieceColor.WHITE, 1000));
+        board.put("g4", valuedPiece(PieceType.QUEEN, PieceColor.WHITE, 9));
+        board.put("e2", valuedPiece(PieceType.BISHOP, PieceColor.WHITE, 3));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithEqualKnightCapture() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("f6", valuedPiece(PieceType.KNIGHT, PieceColor.BLACK, 3));
+        board.put("e8", valuedPiece(PieceType.KING, PieceColor.BLACK, 1000));
+        board.put("e1", valuedPiece(PieceType.KING, PieceColor.WHITE, 1000));
+        board.put("g4", valuedPiece(PieceType.BISHOP, PieceColor.WHITE, 3));
+        board.put("g1", valuedPiece(PieceType.ROOK, PieceColor.WHITE, 5));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithBadQueenCapture() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("g4", valuedPiece(PieceType.QUEEN, PieceColor.BLACK, 9));
+        board.put("e8", valuedPiece(PieceType.KING, PieceColor.BLACK, 1000));
+        board.put("e1", valuedPiece(PieceType.KING, PieceColor.WHITE, 1000));
+        board.put("h6", valuedPiece(PieceType.KNIGHT, PieceColor.WHITE, 3));
+        board.put("h1", valuedPiece(PieceType.ROOK, PieceColor.WHITE, 5));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithRookThreatAndProfitableCapture() {
+        Map<String, Piece> board = boardWithProfitableKnightCapture();
+        board.put("a8", valuedPiece(PieceType.ROOK, PieceColor.BLACK, 5));
+        board.put("b7", valuedPiece(PieceType.BISHOP, PieceColor.WHITE, 3));
+        return board;
+    }
+
     private Map<String, Piece> linkedBoardWithQueenOnH4(Piece knightF3, Piece pawnG3) {
         Map<String, Piece> board = new LinkedHashMap<>();
         board.put("h4", piece(PieceType.QUEEN, PieceColor.BLACK));
@@ -444,7 +653,66 @@ class GameServiceCheckmateRuleTest {
         return pattern;
     }
 
+    private CheckmatePattern activePattern(List<String> moves) {
+        CheckmatePattern pattern = activePattern();
+        pattern.setName(CheckmateService.CURRENT_CHECKMATE_NAME);
+        pattern.setWinningColor(PieceColor.BLACK.toString());
+        pattern.setMoves(moves);
+        pattern.setIndexNextMove(0);
+        return pattern;
+    }
+
+    private Game gameWithBoard(Long gameId, Map<String, Piece> board) {
+        Game game = new Game();
+        game.setId(gameId);
+        game.setWhiteTurn(false);
+        game.setBoardState(gameService.serializeBoardState(board));
+        return game;
+    }
+
+    private Game movedGame(Long gameId) {
+        Game movedGame = new Game();
+        movedGame.setId(gameId);
+        return movedGame;
+    }
+
+    private Map<String, Piece> boardWithCurrentCheckmateInOne() {
+        Map<String, Piece> board = new LinkedHashMap<>();
+        board.put("e8", valuedPiece(PieceType.KING, PieceColor.BLACK, 1000));
+        board.put("h1", valuedPiece(PieceType.KING, PieceColor.WHITE, 1000));
+        board.put("g3", valuedPiece(PieceType.QUEEN, PieceColor.BLACK, 9));
+        board.put("c6", valuedPiece(PieceType.BISHOP, PieceColor.BLACK, 3));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithCurrentCheckmateInOneAndManyWhitePieces() {
+        Map<String, Piece> board = boardWithCurrentCheckmateInOne();
+        board.put("a2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("b2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("c2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("d2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("e2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("f2", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("a3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("b3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("c3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("d3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("e3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        board.put("f3", valuedPiece(PieceType.PAWN, PieceColor.WHITE, 1));
+        return board;
+    }
+
+    private Map<String, Piece> boardWithBlackKingInCheckAndCurrentPlanAvailable() {
+        Map<String, Piece> board = boardWithCurrentCheckmateInOne();
+        board.put("e1", valuedPiece(PieceType.ROOK, PieceColor.WHITE, 5));
+        return board;
+    }
+
     private Piece piece(PieceType type, PieceColor color) {
         return new Piece(type, color, 1, 1);
+    }
+
+    private Piece valuedPiece(PieceType type, PieceColor color, int value) {
+        return new Piece(type, color, value, 1);
     }
 }

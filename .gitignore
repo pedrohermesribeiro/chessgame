@@ -54,3 +54,4 @@ build/
 stockfish.exe
 stockfish
 src/main/resources/application.properties
+.cursor/rules/
