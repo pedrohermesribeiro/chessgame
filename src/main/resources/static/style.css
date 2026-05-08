@@ -130,6 +130,119 @@ button:disabled {
     margin: 0 auto;
 }
 
+/* Área principal: tabuleiro centrado na página, chat à direita (grid 3 colunas) */
+.chess-page-stage {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    width: 100%;
+    align-items: flex-start;
+    box-sizing: border-box;
+}
+
+.chess-board-slot {
+    grid-column: 2;
+    justify-self: center;
+}
+
+.chess-multi-chat {
+    grid-column: 3;
+    justify-self: end;
+    align-self: start;
+    width: 280px;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #b58863;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    padding: 10px 12px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chess-multi-chat-title {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #333;
+}
+
+.chess-multi-chat-messages {
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #222;
+    border: 1px solid #e0d5c5;
+    border-radius: 6px;
+    padding: 8px;
+    background: #faf8f3;
+}
+
+.chess-multi-chat-line {
+    margin-bottom: 6px;
+    word-break: break-word;
+}
+
+.chess-multi-chat-line:last-child {
+    margin-bottom: 0;
+}
+
+.chess-multi-chat-meta {
+    font-weight: 600;
+    color: #5d4037;
+}
+
+.chess-multi-chat-white .chess-multi-chat-meta {
+    color: #1565c0;
+}
+
+.chess-multi-chat-line:not(.chess-multi-chat-white) .chess-multi-chat-meta {
+    color: #6a1b9a;
+}
+
+.chess-multi-chat-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.chess-multi-chat-input {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 13px;
+    border: 1px solid #b58863;
+    border-radius: 5px;
+}
+
+.chess-multi-chat-send {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+@media (max-width: 768px) {
+    .chess-page-stage {
+        grid-template-columns: 1fr;
+    }
+
+    .chess-board-slot {
+        grid-column: 1;
+        justify-self: center;
+    }
+
+    .chess-multi-chat {
+        grid-column: 1;
+        justify-self: center;
+        width: 100%;
+        max-width: 360px;
+    }
+}
+
 /* Coordenadas */
 .board-coordinates {
     --board-cell-size: 60px;

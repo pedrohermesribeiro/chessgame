@@ -59,6 +59,13 @@ import lombok.Data;
 	    private boolean multiGameClosed;
 	    private String multiCloseReason;
 
+	    /** JSON array of chat messages for multi-browser mode (ts, color, name, text). */
+	    @Lob
+	    @Column(length = 65535)
+	    private String multiChatJson;
+	    /** Incremented on each new chat message (for client polling). */
+	    private int multiChatRev;
+
 	    @OneToMany(mappedBy = "game") // O campo 'game' deve existir em Move
 	    private List<Move> moves = new ArrayList<>();
 

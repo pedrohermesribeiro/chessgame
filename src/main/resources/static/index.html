@@ -104,27 +104,39 @@
         <span id="gameIdDisplay"></span>
         <span id="gameStatus"></span>
     </div>
-    <div class="board-container">
-        <div class="board-coordinates">
-            <div class="top-coordinates">
-                <span></span>
-                <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
-                <span></span>
-            </div>
-            <div class="left-coordinates">
-                <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
-            </div>
-            <div id="chessboard"></div>
-            <div class="right-coordinates">
-                <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
-            </div>
-            <div class="bottom-coordinates">
-                <span></span>
-                <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
-                <span></span>
+    <div class="chess-page-stage">
+        <div class="chess-board-slot">
+            <div class="board-container">
+                <div class="board-coordinates">
+                    <div class="top-coordinates">
+                        <span></span>
+                        <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+                        <span></span>
+                    </div>
+                    <div class="left-coordinates">
+                        <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+                    </div>
+                    <div id="chessboard"></div>
+                    <div class="right-coordinates">
+                        <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+                    </div>
+                    <div class="bottom-coordinates">
+                        <span></span>
+                        <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+                        <span></span>
+                    </div>
+                </div>
+                <div id="gameMessage" class="game-message"></div>
             </div>
         </div>
-        <div id="gameMessage" class="game-message"></div>
+        <aside id="multiChatPanel" class="chess-multi-chat" style="display:none;" aria-label="Chat da partida">
+            <h4 class="chess-multi-chat-title">Chat</h4>
+            <div id="multiChatMessages" class="chess-multi-chat-messages"></div>
+            <div class="chess-multi-chat-input-row">
+                <input type="text" id="multiChatInput" class="chess-multi-chat-input" maxlength="280" placeholder="Mensagem..." autocomplete="off">
+                <button type="button" id="multiChatSend" class="chess-multi-chat-send game-button create-button">Enviar</button>
+            </div>
+        </aside>
     </div>
     <div id="promotionDialog" class="promotion-dialog">
         <h3>Escolha a promoção:</h3>
@@ -180,6 +192,8 @@
         let joinRequestModalOpen = false;
         let originalDocumentTitle = null;
         let lastGameSignature = null;
+        let multiChatPollTimer = null;
+        let lastChatRev = -1;
 
         document.addEventListener("DOMContentLoaded", function() {  
             console.log("A página foi carregada completamente.");  
@@ -190,6 +204,19 @@
             }
             if (rejectBtn) {
                 rejectBtn.addEventListener('click', () => respondToJoinRequest(false));
+            }
+            const chatSend = document.getElementById('multiChatSend');
+            const chatInput = document.getElementById('multiChatInput');
+            if (chatSend) {
+                chatSend.addEventListener('click', sendMultiChatMessage);
+            }
+            if (chatInput) {
+                chatInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendMultiChatMessage();
+                    }
+                });
             }
             resetGame();
         });
@@ -215,6 +242,132 @@
                     updateGameState(gameId);
                 }
             }, 1500);
+        }
+
+        function stopMultiChatPoll() {
+            if (multiChatPollTimer) {
+                clearInterval(multiChatPollTimer);
+                multiChatPollTimer = null;
+            }
+        }
+
+        function hideMultiChatPanel() {
+            const panel = document.getElementById('multiChatPanel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+            const msgs = document.getElementById('multiChatMessages');
+            if (msgs) {
+                msgs.innerHTML = '';
+            }
+            stopMultiChatPoll();
+            lastChatRev = -1;
+        }
+
+        function startMultiChatPoll() {
+            stopMultiChatPoll();
+            if (gameMode !== 'multi' || !gameId) {
+                return;
+            }
+            multiChatPollTimer = setInterval(() => {
+                if (gameMode === 'multi' && gameId) {
+                    refreshMultiChat(false);
+                }
+            }, 2000);
+        }
+
+        async function refreshMultiChat(forceRender) {
+            if (!gameId || gameMode !== 'multi') {
+                return;
+            }
+            try {
+                const r = await fetch(`/games/${gameId}/chat`);
+                if (!r.ok) {
+                    return;
+                }
+                const data = await r.json();
+                const rev = data.rev;
+                if (!forceRender && rev === lastChatRev) {
+                    return;
+                }
+                lastChatRev = rev;
+                renderMultiChatMessages(data.messages || []);
+            } catch (e) {
+                console.error('Chat poll:', e);
+            }
+        }
+
+        function renderMultiChatMessages(messages) {
+            const el = document.getElementById('multiChatMessages');
+            if (!el) {
+                return;
+            }
+            el.innerHTML = '';
+            for (const m of messages) {
+                const line = document.createElement('div');
+                line.className = 'chess-multi-chat-line';
+                if (m.color === 'WHITE') {
+                    line.classList.add('chess-multi-chat-white');
+                }
+                const meta = document.createElement('span');
+                meta.className = 'chess-multi-chat-meta';
+                meta.textContent = (m.name || '') + ': ';
+                const txt = document.createElement('span');
+                txt.className = 'chess-multi-chat-text';
+                txt.textContent = m.text || '';
+                line.appendChild(meta);
+                line.appendChild(txt);
+                el.appendChild(line);
+            }
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function updateMultiChatPanelVisibility(gameData) {
+            const panel = document.getElementById('multiChatPanel');
+            if (!panel) {
+                return;
+            }
+            const show = gameMode === 'multi' && gameId && gameData
+                && gameData.multiJoinApproved === true && !gameData.multiGameClosed;
+            if (show) {
+                panel.style.display = 'flex';
+                if (!multiChatPollTimer) {
+                    refreshMultiChat(true);
+                    startMultiChatPoll();
+                }
+            } else {
+                hideMultiChatPanel();
+            }
+        }
+
+        async function sendMultiChatMessage() {
+            const input = document.getElementById('multiChatInput');
+            if (!input || !gameId || gameMode !== 'multi' || !playerColor) {
+                return;
+            }
+            const text = input.value.trim();
+            if (!text) {
+                return;
+            }
+            const name = playerColor === 'WHITE'
+                ? (document.getElementById('playerWhite').value || 'Brancas')
+                : (document.getElementById('playerBlack').value || 'Pretas');
+            try {
+                const r = await fetch(`/games/${gameId}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ color: playerColor, name, text })
+                });
+                if (!r.ok) {
+                    return;
+                }
+                input.value = '';
+                const data = await r.json();
+                lastChatRev = data.rev;
+                renderMultiChatMessages(data.messages || []);
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         function setPlayerColor(color) {
@@ -322,6 +475,12 @@
                 document.getElementById('gameMessage').textContent = accept
                     ? "Oponente aceito. Partida multi conectada."
                     : "Solicitação de entrada recusada.";
+                if (accept) {
+                    const st = await fetch(`/games/${gameId}`);
+                    if (st.ok) {
+                        updateMultiChatPanelVisibility(await st.json());
+                    }
+                }
             } catch (error) {
                 console.error("Erro ao responder solicitação de entrada:", error);
                 const messageEl = document.getElementById('gameMessage');
@@ -349,6 +508,7 @@
             waitingForJoinApproval = false;
             handlingJoinRequest = false;
             hideJoinRequestModal();
+            hideMultiChatPanel();
             isMultiHost = gameMode === 'multi';
             stopMultiSync();
 
@@ -463,6 +623,7 @@
                 isMultiHost = false;
                 handlingJoinRequest = false;
                 hideJoinRequestModal();
+                hideMultiChatPanel();
                 stopMultiSync();
                 document.getElementById('chessboard').style.pointerEvents = 'none';
                 document.getElementById('gameMessage').textContent = gameData.multiCloseReason || "O oponente encerrou esta partida.";
@@ -515,6 +676,7 @@
         function resetGame() {
             stopMultiSync();
             hideJoinRequestModal();
+            hideMultiChatPanel();
             handlingJoinRequest = false;
             rookWhiteExecutado = false;
             rookBlackExecutado = false;
@@ -977,6 +1139,7 @@
                     document.getElementById('gameMessage').textContent = isWhiteTurn ? "Vez das brancas" : "Vez das pretas";
                 }
 
+                updateMultiChatPanelVisibility(gameData);
                 lastGameSignature = signature;
             } catch (error) {
                 console.error('Erro ao atualizar o estado do jogo:', error);
@@ -1428,6 +1591,7 @@
             isMultiHost = false;
             handlingJoinRequest = false;
             hideJoinRequestModal();
+            hideMultiChatPanel();
             stopMultiSync();
             console.log('Modo de jogo alterado para:', gameMode);
         });

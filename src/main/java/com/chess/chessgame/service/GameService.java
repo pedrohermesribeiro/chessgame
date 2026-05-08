@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +27,7 @@ import com.chess.chessgame.repository.BadOpeningRepository;
 import com.chess.chessgame.repository.GameRepository;
 import com.chess.chessgame.repository.MovePieceRepository;
 import com.chess.chessgame.repository.MoveRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.annotation.PostConstruct;
@@ -61,6 +63,11 @@ public class GameService {
     private final Map<String, Integer> transpositionTable = new HashMap<>();
     
     BadOpenig badOpening = new BadOpenig();
+
+    private static final ObjectMapper MULTI_CHAT_MAPPER = new ObjectMapper();
+    private static final int MULTI_CHAT_MAX_MESSAGES = 100;
+    private static final int MULTI_CHAT_MAX_TEXT_LEN = 280;
+    private static final int MULTI_CHAT_MAX_NAME_LEN = 40;
     
     
     @PostConstruct
@@ -371,6 +378,78 @@ public class GameService {
         game.setMultiJoinRejected(false);
         game.setMultiGameClosed(false);
         game.setMultiCloseReason(null);
+        game.setMultiChatJson(null);
+        game.setMultiChatRev(0);
+    }
+
+    public Map<String, Object> getMultiChat(Long gameId) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        Map<String, Object> out = new HashMap<>();
+        out.put("messages", parseMultiChatMessages(game.getMultiChatJson()));
+        out.put("rev", game.getMultiChatRev());
+        return out;
+    }
+
+    @Transactional
+    public Map<String, Object> postMultiChatMessage(Long gameId, String color, String name, String text) {
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Jogo não encontrado: " + gameId));
+        if (!game.isMultiJoinApproved() || game.isMultiGameClosed()) {
+            throw new IllegalStateException("Chat indisponível para este jogo.");
+        }
+        if (color == null || (!"WHITE".equalsIgnoreCase(color) && !"BLACK".equalsIgnoreCase(color))) {
+            throw new IllegalArgumentException("Cor deve ser WHITE ou BLACK.");
+        }
+        String normalizedColor = "WHITE".equalsIgnoreCase(color) ? "WHITE" : "BLACK";
+        String t = text == null ? "" : text.trim();
+        if (t.isEmpty()) {
+            throw new IllegalArgumentException("Mensagem vazia.");
+        }
+        String n = name == null ? "" : name.trim();
+        if (n.length() > MULTI_CHAT_MAX_NAME_LEN) {
+            n = n.substring(0, MULTI_CHAT_MAX_NAME_LEN);
+        }
+        if (t.length() > MULTI_CHAT_MAX_TEXT_LEN) {
+            t = t.substring(0, MULTI_CHAT_MAX_TEXT_LEN);
+        }
+        if (n.isEmpty()) {
+            n = "WHITE".equals(normalizedColor)
+                    ? (game.getPlayerWhite() != null ? game.getPlayerWhite() : "Brancas")
+                    : (game.getPlayerBlack() != null ? game.getPlayerBlack() : "Pretas");
+        }
+
+        List<Map<String, Object>> list = parseMultiChatMessages(game.getMultiChatJson());
+        while (list.size() >= MULTI_CHAT_MAX_MESSAGES) {
+            list.remove(0);
+        }
+        Map<String, Object> msg = new LinkedHashMap<>();
+        msg.put("ts", System.currentTimeMillis());
+        msg.put("color", normalizedColor);
+        msg.put("name", n);
+        msg.put("text", t);
+        list.add(msg);
+        try {
+            game.setMultiChatJson(MULTI_CHAT_MAPPER.writeValueAsString(list));
+        } catch (Exception e) {
+            throw new IllegalStateException("Falha ao gravar chat.");
+        }
+        game.setMultiChatRev(game.getMultiChatRev() + 1);
+        gameRepository.save(game);
+        return getMultiChat(gameId);
+    }
+
+    private List<Map<String, Object>> parseMultiChatMessages(String json) {
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            List<Map<String, Object>> parsed = MULTI_CHAT_MAPPER.readValue(json,
+                    new TypeReference<ArrayList<Map<String, Object>>>() { });
+            return parsed != null ? parsed : new ArrayList<>();
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
     }
     
     public void resetCheckMateRepository() {

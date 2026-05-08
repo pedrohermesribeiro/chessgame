@@ -15,6 +15,7 @@ import com.chess.chessgame.dto.BoardStateDTO;
 import com.chess.chessgame.dto.CastleOptionsDTO;
 import com.chess.chessgame.dto.GameDTO;
 import com.chess.chessgame.dto.MoveRequest;
+import com.chess.chessgame.dto.MultiChatPostRequest;
 import com.chess.chessgame.model.Game;
 import com.chess.chessgame.model.Piece;
 import com.chess.chessgame.model.enums.PieceColor;
@@ -143,6 +144,30 @@ public class GameController {
             return ResponseEntity.ok(gameService.closeMultiGame(id, reason));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    @GetMapping("/{id}/chat")
+    public ResponseEntity<Map<String, Object>> getMultiChat(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(gameService.getMultiChat(id));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/{id}/chat")
+    public ResponseEntity<Map<String, Object>> postMultiChat(@PathVariable Long id,
+            @RequestBody(required = false) MultiChatPostRequest body) {
+        try {
+            String color = body != null ? body.getColor() : null;
+            String name = body != null ? body.getName() : null;
+            String text = body != null ? body.getText() : null;
+            return ResponseEntity.ok(gameService.postMultiChatMessage(id, color, name, text));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(403).build();
         }
     }
    
