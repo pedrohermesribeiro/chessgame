@@ -180,8 +180,6 @@
         let totalJogadas = 0;
         let from = "";
         let to = "";
-        rookWhiteExecutado = false;
-        rookBlackExecutado = false;
         let checkmate = false;
         let gameMode = document.getElementById("mode-select").value;
         let multiSyncTimer = null;
@@ -678,8 +676,6 @@
             hideJoinRequestModal();
             hideMultiChatPanel();
             handlingJoinRequest = false;
-            rookWhiteExecutado = false;
-            rookBlackExecutado = false;
             checkmate = false;
             waitingForJoinApproval = false;
             isMultiHost = false;
@@ -1033,6 +1029,19 @@
             });
         }
 
+        // Retorna as posições da torre quando lastMove é um roque (rei movendo 2 colunas).
+        // Para movimentos normais retorna { rookFrom: null, rookTo: null }, sinalizando
+        // que updateBoard deve seguir pelo ramo de movimento normal.
+        function getCastleRookPositions(lastMove) {
+            switch (lastMove) {
+                case 'e1g1': return { rookFrom: 'h1', rookTo: 'f1' };
+                case 'e1c1': return { rookFrom: 'a1', rookTo: 'd1' };
+                case 'e8g8': return { rookFrom: 'h8', rookTo: 'f8' };
+                case 'e8c8': return { rookFrom: 'a8', rookTo: 'd8' };
+                default: return { rookFrom: null, rookTo: null };
+            }
+        }
+
 
         async function updateGameState(gameId) {
             console.log('Atualizando estado do jogo para gameId:', gameId);
@@ -1056,71 +1065,11 @@
                 currentBoardData = gameData.board || JSON.parse(gameData.boardState || '{}');
                 isWhiteTurn = gameData.whiteTurn;
 
-                //Movimento da torre preta rook grande
-                if(rookBlackExecutado === false && gameData.blackRookA8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8c8'){
-                    const from = 'a8';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'd8';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement);                    
-                    fromSquare.innerHTML = '';
-                    fromSquare.dataset.piece = '';
-                    const pTo = currentBoardData[to];
-                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
-                    rookBlackExecutado = true;
-                    console.log("pode realizar o rook preto maior",gameData.lastMove);
-                }
-                //Movimento da torre branca rook grande
-                if(rookWhiteExecutado === false && gameData.whiteRookA1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1c1'){
-                    const from = 'a1';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'd1';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    fromSquare.dataset.piece = '';
-                    const pTo = currentBoardData[to];
-                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
-                    rookWhiteExecutado = true;
-                    console.log("pode realizar o rook branco maior",gameData.lastMove);
-                }
-                //Movimento da torre preta rook pequeno
-                if(rookBlackExecutado === false && gameData.blackRookH8Moved === true && gameData.blackKingMoved === true && gameData.lastMove === 'e8g8'){
-                    const from = 'h8';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'f8';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    fromSquare.dataset.piece = '';
-                    const pTo = currentBoardData[to];
-                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
-                    rookBlackExecutado = true;
-                    console.log("pode realizar o rook preto maior",gameData.lastMove);
-                }
-                //Movimento da torre branca rook pequeno
-                if(rookWhiteExecutado === false && gameData.whiteRookH1Moved === true && gameData.whiteKingMoved === true && gameData.lastMove === 'e1g1'){
-                    const from = 'h1';
-                    const fromSquare = document.querySelector(`.square[data-pos="${from}"]`);
-                    const kingElement = fromSquare.querySelector('img');
-                    const to = 'f1';
-                    const toSquare = document.querySelector(`.square[data-pos="${to}"]`);
-                    toSquare.appendChild(kingElement); 
-                    fromSquare.innerHTML = '';
-                    fromSquare.dataset.piece = '';
-                    const pTo = currentBoardData[to];
-                    toSquare.dataset.piece = pTo ? `${pTo.color}_${pTo.type}` : '';
-                    rookWhiteExecutado = true;
-                    console.log("pode realizar o rook branco menor",gameData.lastMove);
-                }
-
                 // Atualiza o tabuleiro apenas se o lastMove for diferente do último movimento processado
                 if (gameData.lastMove && gameData.lastMove !== lastProcessedMove) {
                     const [from, to] = [gameData.lastMove.slice(0, 2), gameData.lastMove.slice(2, 4)];
-                    updateBoard(from, to, null, null, gameData);
+                    const { rookFrom, rookTo } = getCastleRookPositions(gameData.lastMove);
+                    updateBoard(from, to, rookFrom, rookTo, gameData);
                     lastProcessedMove = gameData.lastMove; // Armazena o último movimento processado entre polls
                     if (gameMode === 'multi') {
                         syncBoardFromState(currentBoardData);
