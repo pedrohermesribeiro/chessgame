@@ -709,7 +709,6 @@ public class GameService {
                     game.setStatus(GameStatus.CHECKMATE);
                 }else {
                  game.setCheckmate(false);
-                 game.setInCheck(false);
                 }
             } catch (Exception e) {
                 System.err.println("Erro ao verificar cheque-mate: " + e.getMessage());
