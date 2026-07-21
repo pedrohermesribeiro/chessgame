@@ -58,6 +58,9 @@ public class GameService {
     @Autowired
     private StockfishService stockfishService;
 
+    @Autowired
+    private OpeningBookService openingBookService;
+
     private final Map<String, List<String>> openingBook = new HashMap<>();
 
     private final Map<String, Integer> transpositionTable = new HashMap<>();
@@ -4150,38 +4153,281 @@ public class GameService {
             throw new IllegalArgumentException("Não é a vez das pretas!");
         }
 
-        // Add rich context for better AI decisions
         List<Move> movesList = findMoveByIdGame(gameId);
-        StringBuilder historyBuilder = new StringBuilder();
+        String moveHistory = buildMoveHistoryUci(movesList);
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        List<String> legalMoves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
+
+        if (legalMoves.isEmpty()) {
+            throw new IllegalArgumentException("Nenhum lance legal disponivel para as pretas!");
+        }
+
+        // 1) Livro de aberturas: economiza custo e evita aberturas ruins
+        String bookMove = openingBookService.lookup(moveHistory, legalMoves);
+        if (bookMove != null) {
+            System.out.println("[chatGPT-Hard] Lance do livro: " + bookMove + " (historico: " + moveHistory + ")");
+            validateChatGPTHardMove(game, bookMove);
+            return makeMove(gameId, bookMove);
+        }
+
+        // 2) Mate em 1: nem chama a IA, joga direto
+        Optional<String> mateInOne = findMateInOne(game, board, PieceColor.BLACK, legalMoves);
+        if (mateInOne.isPresent()) {
+            System.out.println("[chatGPT-Hard] Mate em 1 detectado: " + mateInOne.get());
+            validateChatGPTHardMove(game, mateInOne.get());
+            return makeMove(gameId, mateInOne.get());
+        }
+
+        // 3) Contexto tatico enriquecido + FEN completo
+        String fen = generateFEN(game, board);
+        boolean inCheck = game.isInCheck();
+        String tacticalFacts = buildTacticalFacts(game, board, PieceColor.BLACK, legalMoves);
+
+        String historyForLog = moveHistory.isEmpty()
+            ? "none"
+            : moveHistory.substring(0, Math.min(80, moveHistory.length()));
+        System.out.println("[chatGPT-Hard] FEN=" + fen + " InCheck=" + inCheck
+            + " LegalMoves=" + legalMoves.size() + " History=" + historyForLog);
+
+        // 4) IA devolve ate 3 candidatos legais (rankeados por forca)
+        List<String> candidates = aiService.suggestHardMoveCandidates(
+            game.getBoardState(), "BLACK", moveHistory, fen, inCheck, legalMoves, tacticalFacts);
+
+        // 5) Rerank via evaluateBoard (heuristica interna); desempate = ordem do modelo
+        String bestMove = rerankCandidates(game, candidates);
+        System.out.println("[chatGPT-Hard] Candidatos: " + candidates + " -> escolhido: " + bestMove);
+
+        validateChatGPTHardMove(game, bestMove);
+        return makeMove(gameId, bestMove);
+    }
+
+    private String buildMoveHistoryUci(List<Move> movesList) {
+        if (movesList == null || movesList.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
         for (Move m : movesList) {
             if (m.getFrom() != null && m.getTo() != null) {
-                historyBuilder.append(m.getFrom()).append(m.getTo()).append(" ");
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(m.getFrom()).append(m.getTo());
             }
         }
-        String moveHistory = historyBuilder.toString().trim();
-
-        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
-        String fen = generateFEN(board, game.isWhiteTurn());  // false for black's turn
-        boolean inCheck = game.isInCheck();
-
-        System.out.println("ChatGPT-Hard context - History: " + (moveHistory.isEmpty() ? "none" : moveHistory.substring(0, Math.min(50, moveHistory.length()))) +
-                          ", FEN: " + fen + ", InCheck: " + inCheck);
-
-        String moveNotation = aiService.suggestHardMove(game.getBoardState(), "BLACK", moveHistory, fen, inCheck);
-        validateChatGPTHardMove(game, moveNotation);
-        return makeMove(gameId, moveNotation);
+        return sb.toString();
     }
-    
+
+    /**
+     * Escolhe o melhor candidato aplicando cada lance num clone do jogo e
+     * pontuando via evaluateBoard sob a perspectiva das BLACK. Se dois lances
+     * empatam, mantem o rank original do modelo (indice menor vence).
+     */
+    private String rerankCandidates(Game game, List<String> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            throw new IllegalStateException("Sem candidatos para rerankear");
+        }
+        if (candidates.size() == 1) return candidates.get(0);
+
+        String best = candidates.get(0);
+        int bestScore = Integer.MIN_VALUE;
+        for (int i = 0; i < candidates.size(); i++) {
+            String cand = candidates.get(i);
+            try {
+                Game clone = cloneGame(game);
+                Map<String, Piece> clonedBoard = deserializeBoardState(clone.getBoardState());
+                applyMove(clone, cand, clonedBoard);
+                int score = evaluateBoard(clone, PieceColor.BLACK);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = cand;
+                }
+            } catch (Exception e) {
+                System.err.println("[chatGPT-Hard] Erro reavaliando candidato " + cand + ": " + e.getMessage());
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Se existir algum lance legal que produza xeque-mate no adversario, retorna
+     * esse lance em UCI para curto-circuitar a chamada de API. Caso contrario,
+     * retorna Optional.empty().
+     */
+    private Optional<String> findMateInOne(Game game, Map<String, Piece> board, PieceColor ownColor, List<String> legalMoves) {
+        PieceColor enemy = ownColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        for (String move : legalMoves) {
+            if (move == null || move.length() < 4) continue;
+            String from = move.substring(0, 2);
+            String to = move.substring(2, 4);
+            Piece originalPiece = board.get(from);
+            if (originalPiece == null) continue;
+            Piece capturedPiece = board.get(to);
+            Map<String, Piece> tempBoard = new HashMap<>(board);
+            tempBoard.put(to, originalPiece);
+            tempBoard.remove(from);
+            try {
+                if (isCheckmate(tempBoard, enemy)) {
+                    return Optional.of(move);
+                }
+            } catch (Exception ignored) {
+                // resiliente a inconsistencias de posicao; continua tentando
+            } finally {
+                // no-op: usamos copia local, nao precisamos restaurar
+                if (capturedPiece != null) { /* placeholder */ }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Monta um bloco de fatos taticos objetivos para o prompt: balanco de
+     * material, pecas proprias penduradas e pecas adversarias penduradas.
+     */
+    private String buildTacticalFacts(Game game, Map<String, Piece> board, PieceColor ownColor, List<String> legalMoves) {
+        PieceColor enemy = ownColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        StringBuilder sb = new StringBuilder();
+        sb.append("- ").append(describeMaterial(board, ownColor)).append('\n');
+
+        List<String> ownHanging = findHangingPieces(board, ownColor);
+        sb.append("- Your pieces hanging (attacked and not adequately defended): ")
+          .append(ownHanging.isEmpty() ? "none" : String.join(", ", ownHanging))
+          .append('\n');
+
+        List<String> enemyHanging = findHangingPieces(board, enemy);
+        sb.append("- Enemy pieces hanging (free/undervalued captures): ")
+          .append(enemyHanging.isEmpty() ? "none" : String.join(", ", enemyHanging))
+          .append('\n');
+
+        int legalCount = legalMoves == null ? 0 : legalMoves.size();
+        sb.append("- Legal move count: ").append(legalCount).append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * String no formato "Material: White X vs Black Y (You: +/-Z)" a partir dos
+     * valores de peca (peao=1 ... rainha=9, rei nao entra no somatorio).
+     */
+    private String describeMaterial(Map<String, Piece> board, PieceColor ownColor) {
+        int white = 0;
+        int black = 0;
+        for (Piece p : board.values()) {
+            if (p == null || p.getType() == PieceType.KING) continue;
+            int v = pieceMaterialValue(p.getType());
+            if (p.getColor() == PieceColor.WHITE) white += v;
+            else black += v;
+        }
+        int own = ownColor == PieceColor.WHITE ? white : black;
+        int enemy = ownColor == PieceColor.WHITE ? black : white;
+        int diff = own - enemy;
+        String sign = diff > 0 ? "+" : "";
+        return "Material: White " + white + " vs Black " + black
+            + " (You as " + ownColor + ": " + sign + diff + ")";
+    }
+
+    private int pieceMaterialValue(PieceType type) {
+        return switch (type) {
+            case PAWN -> 1;
+            case KNIGHT -> 3;
+            case BISHOP -> 3;
+            case ROOK -> 5;
+            case QUEEN -> 9;
+            case KING -> 0;
+        };
+    }
+
+    /**
+     * Retorna as pecas de {@code color} que estao atacadas por alguma peca
+     * inimiga E que ou nao tem defensor, ou o defensor mais barato vale menos
+     * do que o atacante mais barato (troca desfavoravel). O rei e ignorado
+     * porque xeque tem tratamento proprio.
+     */
+    private List<String> findHangingPieces(Map<String, Piece> board, PieceColor color) {
+        PieceColor enemy = color == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        List<String> out = new ArrayList<>();
+        for (Map.Entry<String, Piece> e : board.entrySet()) {
+            Piece p = e.getValue();
+            if (p == null || p.getColor() != color || p.getType() == PieceType.KING) continue;
+            String square = e.getKey();
+            if (!isSquareUnderAttack(board, square, enemy)) continue;
+
+            int cheapestAttacker = cheapestAttackerValue(board, square, enemy);
+            int cheapestDefender = cheapestAttackerValue(board, square, color);
+            int victimValue = pieceMaterialValue(p.getType());
+
+            boolean hanging = (cheapestDefender == Integer.MAX_VALUE)                // nenhum defensor
+                || (cheapestAttacker < victimValue);                                 // ataque mais barato ganha a troca
+            if (hanging) {
+                out.add(square + " (" + p.getType() + ")");
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Valor da peca de {@code attackerColor} mais barata que ataca {@code square}.
+     * Retorna Integer.MAX_VALUE se nao houver atacante.
+     */
+    private int cheapestAttackerValue(Map<String, Piece> board, String square, PieceColor attackerColor) {
+        int cheapest = Integer.MAX_VALUE;
+        int squareRow = Character.getNumericValue(square.charAt(1));
+        char squareCol = square.charAt(0);
+        for (Map.Entry<String, Piece> entry : board.entrySet()) {
+            Piece piece = entry.getValue();
+            if (piece == null || piece.getColor() != attackerColor) continue;
+            String from = entry.getKey();
+            int fromRow = Character.getNumericValue(from.charAt(1));
+            char fromCol = from.charAt(0);
+            boolean attacks = false;
+            if (piece.getType() == PieceType.PAWN) {
+                int dir = piece.getColor() == PieceColor.WHITE ? 1 : -1;
+                if (Math.abs(fromCol - squareCol) == 1 && squareRow - fromRow == dir) {
+                    attacks = true;
+                }
+            } else {
+                // reutiliza validador oficial de lance para o resto
+                attacks = isMoveLegal(board, from, square, attackerColor);
+            }
+            if (attacks) {
+                int v = pieceMaterialValue(piece.getType());
+                if (v < cheapest) cheapest = v;
+            }
+        }
+        return cheapest;
+    }
+
+    /** Overload legado; mantido para nao quebrar chamadores antigos. */
     public String generateFEN(Map<String, Piece> board, boolean whiteToMove) {
+        return piecePlacementFen(board) + " " + (whiteToMove ? "w" : "b") + " - - 0 1";
+    }
 
+    /**
+     * Gera FEN completo aproveitando as flags de roque em {@link Game} e o
+     * historico de {@link Move} para en passant, halfmove clock e fullmove
+     * number. E o formato correto para engines externas e para a IA raciocinar
+     * sobre roque e regra dos 50 lances.
+     */
+    public String generateFEN(Game game, Map<String, Piece> board) {
         StringBuilder fen = new StringBuilder();
+        fen.append(piecePlacementFen(board));
+        fen.append(' ').append(game.isWhiteTurn() ? 'w' : 'b');
 
+        StringBuilder rights = new StringBuilder();
+        if (!game.isWhiteKingMoved() && !game.isWhiteRookH1Moved()) rights.append('K');
+        if (!game.isWhiteKingMoved() && !game.isWhiteRookA1Moved()) rights.append('Q');
+        if (!game.isBlackKingMoved() && !game.isBlackRookH8Moved()) rights.append('k');
+        if (!game.isBlackKingMoved() && !game.isBlackRookA8Moved()) rights.append('q');
+        fen.append(' ').append(rights.length() == 0 ? "-" : rights.toString());
+
+        fen.append(' ').append(enPassantSquare(game, board));
+
+        List<Move> history = game.getMoves();
+        fen.append(' ').append(halfmoveClock(history));
+        fen.append(' ').append(fullmoveNumber(history));
+        return fen.toString();
+    }
+
+    private String piecePlacementFen(Map<String, Piece> board) {
+        StringBuilder fen = new StringBuilder();
         for (int rank = 8; rank >= 1; rank--) {
             int emptyCount = 0;
-
             for (char file = 'a'; file <= 'h'; file++) {
                 String square = "" + file + rank;
-
                 if (!board.containsKey(square)) {
                     emptyCount++;
                 } else {
@@ -4189,27 +4435,50 @@ public class GameService {
                         fen.append(emptyCount);
                         emptyCount = 0;
                     }
-
-                    Piece p = board.get(square);
-                    fen.append(pieceToFen(p));
+                    fen.append(pieceToFen(board.get(square)));
                 }
             }
-
-            if (emptyCount > 0)
-                fen.append(emptyCount);
-
-            if (rank > 1)
-                fen.append('/');
+            if (emptyCount > 0) fen.append(emptyCount);
+            if (rank > 1) fen.append('/');
         }
-
-        // Turno
-        fen.append(" ");
-        fen.append(whiteToMove ? "w" : "b");
-
-        // Sem roque por enquanto (pode habilitar depois)
-        fen.append(" - - 0 1");
-
         return fen.toString();
+    }
+
+    /**
+     * Se o ultimo lance foi um peao andando duas casas, retorna a casa
+     * intermediaria (destino do en passant). Caso contrario retorna "-".
+     */
+    private String enPassantSquare(Game game, Map<String, Piece> board) {
+        List<Move> history = game.getMoves();
+        if (history == null || history.isEmpty()) return "-";
+        Move last = history.get(history.size() - 1);
+        if (last == null || last.getFrom() == null || last.getTo() == null) return "-";
+        String from = last.getFrom();
+        String to = last.getTo();
+        if (from.length() != 2 || to.length() != 2) return "-";
+        Piece movedTo = board.get(to);
+        if (movedTo == null || movedTo.getType() != PieceType.PAWN) return "-";
+        int fromRow = Character.getNumericValue(from.charAt(1));
+        int toRow = Character.getNumericValue(to.charAt(1));
+        if (Math.abs(toRow - fromRow) != 2) return "-";
+        if (from.charAt(0) != to.charAt(0)) return "-";
+        int epRow = (fromRow + toRow) / 2;
+        return "" + from.charAt(0) + epRow;
+    }
+
+    /**
+     * Halfmove clock (regra dos 50 lances). Como o modelo Move nao guarda o
+     * tipo de peca movida nem se houve captura, retornamos 0 (assume que o
+     * relogio foi recem-resetado). E um default conservador que apenas impede
+     * o modelo de acreditar erroneamente que esta perto de empate por 50 lances.
+     */
+    private int halfmoveClock(List<Move> history) {
+        return 0;
+    }
+
+    private int fullmoveNumber(List<Move> history) {
+        int size = history == null ? 0 : history.size();
+        return 1 + (size / 2);
     }
 
     private String pieceToFen(Piece p) {
@@ -4237,8 +4506,8 @@ public class GameService {
         // 1 — desserializa o boardState atual
         Map<String, Piece> board = deserializeBoardState(game.getBoardState());
 
-        // 2 — gera o FEN correto
-        String fen = generateFEN(board, game.isWhiteTurn());
+        // 2 — gera o FEN completo (com roque/en passant reais)
+        String fen = generateFEN(game, board);
         System.out.println("FEN enviado ao Stockfish: " + fen);
 
         // 3 — chama o engine
