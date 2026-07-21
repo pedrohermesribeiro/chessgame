@@ -4129,7 +4129,8 @@ public class GameService {
             throw new IllegalArgumentException("Não é a vez das pretas!");
         }
 
-        List<Move> movesList = findMoveByIdGame(gameId);
+        // JPA @OneToMany garante colecao sincrona; evita query separada que pode retornar vazio
+        List<Move> movesList = game.getMoves() != null ? game.getMoves() : java.util.Collections.emptyList();
         String moveHistory = buildMoveHistoryUci(movesList);
         Map<String, Piece> board = deserializeBoardState(game.getBoardState());
         List<String> legalMoves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
@@ -4137,6 +4138,8 @@ public class GameService {
         if (legalMoves.isEmpty()) {
             throw new IllegalArgumentException("Nenhum lance legal disponivel para as pretas!");
         }
+
+        System.out.println("[chatGPT-Hard] moves=" + movesList.size() + " bookKey='" + moveHistory + "'");
 
         // 1) Livro de aberturas: economiza custo e evita aberturas ruins
         String bookMove = openingBookService.lookup(moveHistory, legalMoves);
@@ -4314,17 +4317,14 @@ public class GameService {
     }
 
     /**
-     * Decide o nivel de raciocinio a gastar no gpt-5: HIGH em posicoes onde
-     * precisao paga a latencia extra (xeque, endgame com <=12 pecas, ou
-     * desequilibrio material >=3 pontos absolutos). Nas demais, MEDIUM
-     * mantem qualidade competente com resposta 3-5x mais rapida.
+     * Decide o nivel de raciocinio a gastar no gpt-5: HIGH so quando o rei preto
+     * esta em xeque (precisao paga a latencia/tokens extras); MEDIUM em todo o
+     * resto. HIGH em endgame ou desequilibrio material foi removido pois
+     * inflava tokens sem ganho consistente — o rerank via evaluateBoard e o
+     * livro/mate-em-1 ja atuam nesses casos.
      */
     private com.openai.models.ReasoningEffort chooseReasoningEffort(Map<String, Piece> board, boolean inCheck) {
-        if (inCheck) return com.openai.models.ReasoningEffort.HIGH;
-        if (board.size() <= 12) return com.openai.models.ReasoningEffort.HIGH;
-        int diff = materialDiff(board, PieceColor.BLACK);
-        if (Math.abs(diff) >= 3) return com.openai.models.ReasoningEffort.HIGH;
-        return com.openai.models.ReasoningEffort.MEDIUM;
+        return inCheck ? com.openai.models.ReasoningEffort.HIGH : com.openai.models.ReasoningEffort.MEDIUM;
     }
 
     private int pieceMaterialValue(PieceType type) {

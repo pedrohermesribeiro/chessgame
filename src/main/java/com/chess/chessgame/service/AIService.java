@@ -120,6 +120,16 @@ public class AIService {
                     .trim();
             lastRawAnswer = raw;
 
+            completion.usage().ifPresent(u -> {
+                long reasoning = u.completionTokensDetails()
+                    .flatMap(d -> d.reasoningTokens())
+                    .orElse(0L);
+                System.out.println("[chatGPT-Hard] tokens in=" + u.promptTokens()
+                    + " out=" + u.completionTokens()
+                    + " reasoning=" + reasoning
+                    + " total=" + u.totalTokens());
+            });
+
             System.out.println("[chatGPT-Hard] tentativa " + attempt + " resposta bruta: " + truncate(raw, 200));
 
             List<String> parsed = parseCandidates(raw);
@@ -140,37 +150,20 @@ public class AIService {
 
     private String buildHardSystemPrompt() {
         return """
-            You are a grandmaster-level chess engine embedded in a Java chess app. You always play as BLACK in this mode.
+            You are a grandmaster-level chess engine playing BLACK. Goal: checkmate the WHITE king.
 
-            ABSOLUTE GOAL:
-            Deliver CHECKMATE to the WHITE king. Material, tempo, space, and piece activity are only tools that serve the mating plan. Every move must be evaluated by the question: "Does this move bring me closer to checkmating the white king?" Do not shuffle, do not stall, hunt the king.
+            RESPONSE (STRICT JSON, no prose, no code fences):
+            {"candidates": ["<uci>"]}
+            - EXACTLY 1 UCI move (4 or 5 chars, e.g. e7e5, e2e1q).
+            - MUST be one of the LEGAL MOVES listed in the user message.
 
-            RESPONSE FORMAT (STRICT):
-            You MUST reply with STRICT JSON only, no prose, no markdown, no code fences:
-            {"candidates": ["<uci1>", "<uci2>", "<uci3>"]}
-            - EXACTLY 1 to 3 candidates.
-            - Each MUST be a UCI string (4 or 5 chars, e.g. e7e5, g8f6, e2e1q).
-            - Order them from strongest (index 0) to weakest.
-            - Each MUST be EXACTLY one of the strings from the LEGAL MOVES list you will receive in the user message.
-            - Do NOT invent moves, do NOT normalize case, do NOT reorder the string characters, do NOT add explanations.
-
-            STRATEGY (in priority):
-            1. If in check: play a legal move that resolves the check with the best follow-up.
-            2. Look for forced mate (mate in 1, 2, 3). If seen, play it.
-            3. Win material with favorable exchanges; capture hanging enemy pieces flagged in TACTICAL FACTS.
-            4. Coordinate pieces toward the white king; open lines against the castled position.
-            5. Push passed pawns toward promotion (rank 1 for BLACK). Default promotion is queen ("q" suffix).
-            6. Neutralize any white pawn on rank 6 or 7: capture, block, or attack the promotion square.
-            7. When ahead in material by 3+, switch to MATING MODE: keep enough attacking pieces, do not trade the queen.
-
-            CHECK DISCIPLINE:
-            - A check is only worth playing if it forces mate, wins material, or the checking piece cannot be captured (or the recapture is favorable).
-            - Never sacrifice the queen for a check that just loses the queen for a pawn.
-
-            STALEMATE AVOIDANCE:
-            - When winning, verify white always has at least one legal reply. Avoid stalemate.
-
-            You will now receive the position and the exact LEGAL MOVES list. Pick from that list only.
+            Priorities (in order):
+            1. If in check, escape with the best follow-up.
+            2. Find forced mate (in 1-3) and play it.
+            3. Capture hanging enemy pieces flagged in TACTICAL FACTS.
+            4. Coordinate pieces toward the white king; open attacking lines.
+            5. Promote passed pawns (default: queen, suffix "q").
+            6. Avoid checks that just lose material. Avoid stalemate when winning.
             """;
     }
 
@@ -193,13 +186,13 @@ public class AIService {
         sb.append("LEGAL MOVES (you MUST choose exactly from this list, no other move is accepted):\n");
         sb.append(String.join(", ", legalMoves)).append('\n');
         sb.append('\n');
-        sb.append("Reply now with STRICT JSON: {\"candidates\":[\"<uci1>\", ...]}");
+        sb.append("Reply now with STRICT JSON: {\"candidates\":[\"<uci>\"]}");
         return sb.toString();
     }
 
     private String buildRetryFeedback(String reason, List<String> legalMoves) {
         return "Your previous answer was rejected. Reason: " + reason
-            + " Reply again with STRICT JSON {\"candidates\":[\"<uci>\", ...]} choosing 1 to 3 moves from the LEGAL MOVES list ONLY. "
+            + " Reply again with STRICT JSON {\"candidates\":[\"<uci>\"]} choosing EXACTLY 1 move from the LEGAL MOVES list ONLY. "
             + "Remember: no prose, no code fences, no invented moves. Legal moves reminder: "
             + String.join(", ", legalMoves);
     }
