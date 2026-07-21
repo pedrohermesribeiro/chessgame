@@ -81,10 +81,21 @@ public class GameService {
     }
 
     private void initializeOpeningBook() {
-        openingBook.put("e2e4", Arrays.asList("e7e5", "c7c5", "e7e6", "c7c6")); // Open Game, Sicilian, French, Caro-Kann
-        openingBook.put("d2d4", Arrays.asList("d7d5", "g8f6", "e7e6", "c7c5")); // Queen's Gambit, Indian, French, Dutch
-        openingBook.put("c2c4", Arrays.asList("e7e5", "c7c5", "g8f6")); // English responses
-        // Adicione mais
+        // Primeira jogada branca -> resposta preta (ECO padrao, chave = lastMove)
+        openingBook.put("e2e4", Arrays.asList("e7e5", "c7c5", "e7e6", "c7c6", "d7d6", "g8f6")); // Aberto, Siciliana, Francesa, Caro-Kann, Pirc, Alekhine
+        openingBook.put("d2d4", Arrays.asList("g8f6", "d7d5", "e7e6", "c7c5", "f7f5"));         // Indianas, Queen's Gambit, Franco-Indiana, Benoni, Holandesa
+        openingBook.put("c2c4", Arrays.asList("e7e5", "c7c5", "g8f6", "e7e6"));                 // Inglesa: Reverse Sicilian, Simetrica, Indianas, Anglo-QGD
+        openingBook.put("g1f3", Arrays.asList("g8f6", "d7d5", "c7c5"));                          // Reti / Nf3 mainline
+        openingBook.put("g2g3", Arrays.asList("d7d5", "g8f6", "c7c5"));                          // Benko
+        openingBook.put("b2b3", Arrays.asList("e7e5", "d7d5", "g8f6"));                          // Larsen
+        openingBook.put("f2f4", Arrays.asList("d7d5", "g8f6", "e7e5"));                          // Bird (aceita From's Gambit)
+
+        // Segunda jogada branca em linhas principais (chave = last white move; usada quando lastMove for essa)
+        openingBook.put("b1c3", Arrays.asList("g8f6", "d7d5", "e7e5"));
+        openingBook.put("f1c4", Arrays.asList("g8f6", "b8c6", "f8c5"));   // Italiana
+        openingBook.put("f1b5", Arrays.asList("a7a6", "g8f6", "d7d6"));   // Espanhola: Morphy, Berlim, Steinitz
+        openingBook.put("d2d3", Arrays.asList("g8f6", "d7d5"));            // King's Indian Attack reversed
+        openingBook.put("c2c3", Arrays.asList("g8f6", "d7d5", "e7e5"));    // Colle-like reversed
     }
    
     private void initializeMovePiece(int y) {
@@ -1320,6 +1331,10 @@ public class GameService {
    
    
     private boolean isPathClear(Map<String, Piece> board, String from, String to, boolean isStraight) {
+        // Salvaguarda: caminho de comprimento 0 e trivialmente livre. Sem isso
+        // os loops horizontal/vertical/diagonal abaixo nunca convergem quando
+        // from == to (step calculado como -1 e c/r nunca chegam a toCol/toRow).
+        if (from.equals(to)) return true;
         int fromRow = Character.getNumericValue(from.charAt(1));
         int toRow = Character.getNumericValue(to.charAt(1));
         char fromCol = from.charAt(0);
@@ -1630,6 +1645,11 @@ public class GameService {
             Piece piece = entry.getValue();
             String from = entry.getKey();
             if (piece.getColor() == attackerColor) {
+                // Uma peca nao ataca a propria casa. Sem esse guard, quando o
+                // caller pergunta "sq esta defendido por aliados?", a propria
+                // peca em sq entra na iteracao e dispara isPathClear(from==to),
+                // que tem loops que nunca convergem.
+                if (from.equals(square)) continue;
                 int fromRow = Character.getNumericValue(from.charAt(1));
                 char fromCol = from.charAt(0);
                 if (piece.getType() == PieceType.PAWN) {
@@ -1963,6 +1983,8 @@ public class GameService {
             System.out.println("Não é a vez das pretas!");
             throw new IllegalArgumentException("Não é a vez das pretas!");
         }
+        // limpa cache entre lances: evita poluir avaliacao com posicoes de partidas anteriores
+        transpositionTable.clear();
         Map<String, Piece> board = deserializeBoardState(game.getBoardState());
         boolean isInCheck = isKingInCheck(board, PieceColor.BLACK);
         List<String> moves = getAllPossibleMoves(gameId, board, PieceColor.BLACK);
@@ -1981,9 +2003,12 @@ public class GameService {
         for (Move m : game.getMoves()) {
             currentSequence.add(m.getFrom() + m.getTo());
         }
+        // Precomputa bad openings uma unica vez (antes: 1 query por candidato)
+        final List<BadOpenig> cachedBadOpenings = badOpeningRepository != null
+                ? badOpeningRepository.findAll() : new ArrayList<>();
         // Filtrar movimentos que levam a aberturas ruins
         moves = moves.stream()
-            .filter(move -> !isBadOpening(currentSequence, move))
+            .filter(move -> !isBadOpeningCached(currentSequence, move, cachedBadOpenings))
             .toList();
         System.out.println("Sequência ruim: " + currentSequence + " " + moves + " " + "out" + game.getMoves().size());
         if (moves.isEmpty()) {
@@ -2026,9 +2051,8 @@ public class GameService {
         for (String move : moves) {
             String from = move.substring(0, 2);
             String to = move.substring(2, 4);
-            // Avaliar captura
+            // Avaliar captura (SEM filtrar sacrificios negativos: quiescence resolve o horizonte)
             int captureScore = evaluateCapture(board, from, to);
-            if (captureScore < 0) continue;
             Game clonedGame = cloneGame(game);
             applyMove(clonedGame, move, board);
             int score = minimax(clonedGame, depth - 1, Integer.MIN_VALUE, Integer.MAX_VALUE, false) + captureScore;
@@ -2068,13 +2092,31 @@ public class GameService {
         int score = 0;
         Map<String, Piece> board = deserializeBoardState(game.getBoardState());
         PieceColor opponentColor = (color == PieceColor.BLACK) ? PieceColor.WHITE : PieceColor.BLACK;
-        // Material
-        for (Piece piece : board.values()) {
-            if (piece != null) {
-                score += (piece.getColor() == color) ? piece.getValuePiece() : -piece.getValuePiece();
-            }
+
+        // === SINAIS DECISIVOS: checkmate e xeque ===
+        // sem isso o minimax pode preferir "ganhar dama" a "dar mate"
+        try {
+            if (isCheckmate(board, opponentColor)) return 1_000_000;
+            if (isCheckmate(board, color)) return -1_000_000;
+        } catch (Exception ignored) {
+            // se isCheckmate falhar por inconsistencia, seguir com heuristicas
         }
-        // Controle centro
+        boolean iAmInCheck = isKingInCheck(board, color);
+        boolean enemyInCheck = isKingInCheck(board, opponentColor);
+        if (enemyInCheck) score += 40;
+        if (iAmInCheck) score -= 30;
+
+        // === MATERIAL === (rei desconsiderado no somatorio pratico, mas ficamos
+        // com o valuePiece existente; queen tem peso duplo para preferir dar
+        // mate a ganhar dama num draw quiescence)
+        for (Piece piece : board.values()) {
+            if (piece == null) continue;
+            int base = piece.getValuePiece();
+            if (piece.getType() == PieceType.QUEEN) base *= 2;
+            score += (piece.getColor() == color) ? base : -base;
+        }
+
+        // === CONTROLE DO CENTRO ===
         String[] centralSquares = {"d4", "d5", "e4", "e5"};
         for (String square : centralSquares) {
             Piece piece = board.get(square);
@@ -2082,11 +2124,37 @@ public class GameService {
                 score += (piece.getColor() == color) ? 10 : -10;
             }
         }
-        // Segurança rei
+
+        // === SEGURANCA DO REI (proprio) + ATAQUE AO REI INIMIGO ===
         String kingPos = findKingPosition(board, color);
         if (kingPos != null) {
             score += evaluateKingSafety(board, kingPos, color);
         }
+        String enemyKingPos = findKingPosition(board, opponentColor);
+        if (enemyKingPos != null) {
+            // penaliza rei inimigo bem defendido, premia rei inimigo exposto
+            score -= evaluateKingSafety(board, enemyKingPos, opponentColor);
+            // atacantes na zona 3x3 do rei inimigo
+            score += 15 * countAttackersOnKingZone(board, enemyKingPos, color);
+            // atacantes do adversario na propria zona (defesa)
+            score -= 10 * countAttackersOnKingZone(board, kingPos, opponentColor);
+        }
+
+        // === PIECE-SQUARE TABLES ===
+        score += pstScore(board, color);
+
+        // === BISHOP PAIR ===
+        score += bishopPairBonus(board, color);
+        score -= bishopPairBonus(board, opponentColor);
+
+        // === ROOK ON OPEN / SEMI-OPEN FILE ===
+        score += rookOpenFileBonus(board, color);
+        score -= rookOpenFileBonus(board, opponentColor);
+
+        // === PASSED PAWNS ===
+        score += passedPawnBonus(board, color);
+        score -= passedPawnBonus(board, opponentColor);
+
         // Penalize early f/g/h pawn moves for black if game.moves <5
         if (game.getMoves().size() < 5 && color == PieceColor.BLACK) {
             if (!board.containsKey("f7") || !board.containsKey("g7") || !board.containsKey("h7")) {
@@ -2239,7 +2307,7 @@ public class GameService {
             return transpositionTable.get(positionKey);
         }
         if (depth == 0 || game.getStatus() != GameStatus.IN_PROGRESS) {
-            int score = evaluateBoard(game, PieceColor.BLACK);
+            int score = quiescence(game, alpha, beta, maximizingPlayer, 4);
             transpositionTable.put(positionKey, score);
             return score;
         }
@@ -2352,10 +2420,20 @@ public class GameService {
    
     private boolean isBadOpening(List<String> currentSequence, String move) {
         List<BadOpenig> badOpenings = badOpeningRepository.findAll();
+        return isBadOpeningCached(currentSequence, move, badOpenings);
+    }
+
+    /**
+     * Versao performatica de isBadOpening: recebe a lista de bad openings ja
+     * carregada (evita findAll() por candidato dentro de stream/loop).
+     */
+    private boolean isBadOpeningCached(List<String> currentSequence, String move, List<BadOpenig> badOpenings) {
+        if (badOpenings == null || badOpenings.isEmpty() || currentSequence == null) return false;
         for (BadOpenig bad : badOpenings) {
             List<String> badSeq = bad.getMoveSequence();
-            if (currentSequence.size() >= badSeq.size() && currentSequence.subList(0, badSeq.size()).equals(badSeq)) {
-             System.out.println("Sequência ruim: " + move + bad.getId());
+            if (badSeq == null) continue;
+            if (currentSequence.size() >= badSeq.size()
+                    && currentSequence.subList(0, badSeq.size()).equals(badSeq)) {
                 return true;
             }
         }
@@ -2394,6 +2472,18 @@ public class GameService {
                 game.setStatus(GameStatus.DRAW);
             }
             return gameRepository.save(game);
+        }
+
+        // === CACADA DE CHECKMATE (topo do waterfall) ===
+        // Mate em 1/2/3 curto-circuita todo o resto. M1 e barato (O(N)); M2/M3
+        // so exploram moves que dao xeque no root, mantendo custo baixo.
+        String mateMove = findMateInMoves(gameId, board, PieceColor.BLACK, moves, 1);
+        if (mateMove == null) mateMove = findMateInMoves(gameId, board, PieceColor.BLACK, moves, 2);
+        if (mateMove == null) mateMove = findMateInMoves(gameId, board, PieceColor.BLACK, moves, 3);
+        if (mateMove != null) {
+            System.err.println("[reactive] Mate detectado: " + mateMove);
+            Game updatedGame = makeMove(gameId, mateMove);
+            return gameRepository.save(updatedGame);
         }
 
         if (inCheck) {
@@ -2459,6 +2549,22 @@ public class GameService {
             if (rookDefenseMove != null) {
                 System.err.println("Defesa de torre preta selecionada no reactive-move: " + rookDefenseMove);
                 Game updatedGame = makeMove(gameId, rookDefenseMove);
+                return gameRepository.save(updatedGame);
+            }
+
+            // === XEQUE COM TEMPO === (ataque a rei com peca segura ou ganho material)
+            String checkTempoMove = findCheckWithTempo(board, moves, PieceColor.BLACK);
+            if (checkTempoMove != null) {
+                System.err.println("[reactive] Xeque com tempo: " + checkTempoMove);
+                Game updatedGame = makeMove(gameId, checkTempoMove);
+                return gameRepository.save(updatedGame);
+            }
+
+            // === TACTICAL SHOT === (fork, double-attack)
+            String tacticalMove = findTacticalShot(board, moves, PieceColor.BLACK);
+            if (tacticalMove != null) {
+                System.err.println("[reactive] Tatica detectada (fork/double-attack): " + tacticalMove);
+                Game updatedGame = makeMove(gameId, tacticalMove);
                 return gameRepository.save(updatedGame);
             }
 
@@ -4253,6 +4359,408 @@ public class GameService {
             }
         }
         return Optional.empty();
+    }
+
+    // ============================================================================
+    // Reactive-mode checkmate hunter + evaluation reforço (Hard Computer)
+    // Novos helpers para o modo Player vs Hard Computer (rota /reactive-move):
+    // mate-em-1/2/3, xeque com tempo, tactical shot, quiescence, PST, king attack.
+    // Nao afeta chatGPT-Hard nem outros modos.
+    // ============================================================================
+
+    /**
+     * Detector generico de mate forçado em N plies (1, 2 ou 3), do lado ownColor.
+     * plies=1: qualquer move que da checkmate direto.
+     * plies>=2: so explora moves que dao xeque no root, e exige que TODAS as
+     * respostas do adversario caiam em mate-em-(plies-1).
+     * Retorna o move UCI ou null.
+     */
+    private String findMateInMoves(Long gameId, Map<String, Piece> board, PieceColor ownColor, List<String> legalMoves, int plies) {
+        if (plies < 1 || plies > 3 || legalMoves == null || legalMoves.isEmpty()) return null;
+        PieceColor enemy = ownColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        for (String move : legalMoves) {
+            if (move == null || move.length() < 4) continue;
+            String from = move.substring(0, 2);
+            String to = move.substring(2, 4);
+            Piece movingPiece = board.get(from);
+            if (movingPiece == null) continue;
+            Map<String, Piece> tempBoard = new HashMap<>(board);
+            tempBoard.put(to, movingPiece);
+            tempBoard.remove(from);
+            try {
+                if (isCheckmate(tempBoard, enemy)) {
+                    return move;
+                }
+                if (plies == 1) continue;
+                if (!isKingInCheck(tempBoard, enemy)) continue;
+                List<String> enemyReplies = getAllPossibleMoves(gameId, tempBoard, enemy);
+                if (enemyReplies.isEmpty()) continue;
+                boolean allLeadToMate = true;
+                for (String enemyMove : enemyReplies) {
+                    if (enemyMove == null || enemyMove.length() < 4) { allLeadToMate = false; break; }
+                    String eFrom = enemyMove.substring(0, 2);
+                    String eTo = enemyMove.substring(2, 4);
+                    Piece ePiece = tempBoard.get(eFrom);
+                    if (ePiece == null) { allLeadToMate = false; break; }
+                    Map<String, Piece> afterEnemy = new HashMap<>(tempBoard);
+                    afterEnemy.put(eTo, ePiece);
+                    afterEnemy.remove(eFrom);
+                    List<String> ownReplies = getAllPossibleMoves(gameId, afterEnemy, ownColor);
+                    String followUp = findMateInMoves(gameId, afterEnemy, ownColor, ownReplies, plies - 1);
+                    if (followUp == null) { allLeadToMate = false; break; }
+                }
+                if (allLeadToMate) return move;
+            } catch (Exception ignored) {
+                // resiliente a inconsistencias
+            }
+        }
+        return null;
+    }
+
+    /**
+     * True se aplicar o move na cor own resulta em xeque no rei adversario.
+     */
+    private boolean moveGivesCheck(Map<String, Piece> board, String move, PieceColor own) {
+        if (move == null || move.length() < 4) return false;
+        String from = move.substring(0, 2);
+        String to = move.substring(2, 4);
+        Piece p = board.get(from);
+        if (p == null) return false;
+        Map<String, Piece> tempBoard = new HashMap<>(board);
+        tempBoard.put(to, p);
+        tempBoard.remove(from);
+        PieceColor enemy = own == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        try {
+            return isKingInCheck(tempBoard, enemy);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Melhor xeque com tempo: xeque no rei inimigo cuja peca que checa nao pode
+     * ser recapturada por peca de valor menor ou igual (ou onde o ganho de
+     * material compensa uma eventual recaptura).
+     */
+    private String findCheckWithTempo(Map<String, Piece> board, List<String> moves, PieceColor own) {
+        PieceColor enemy = own == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        String bestMove = null;
+        int bestScore = 0;
+        for (String move : moves) {
+            if (move == null || move.length() < 4) continue;
+            String from = move.substring(0, 2);
+            String to = move.substring(2, 4);
+            Piece movingPiece = board.get(from);
+            if (movingPiece == null) continue;
+            Piece captured = board.get(to);
+            int myValue = movingPiece.getValuePiece();
+            int gain = captured != null && captured.getColor() == enemy ? captured.getValuePiece() : 0;
+            Map<String, Piece> tempBoard = new HashMap<>(board);
+            tempBoard.put(to, movingPiece);
+            tempBoard.remove(from);
+            try {
+                if (!isKingInCheck(tempBoard, enemy)) continue;
+                boolean canBeRecaptured = isSquareUnderAttack(tempBoard, to, enemy);
+                int netGain = gain;
+                if (canBeRecaptured) {
+                    boolean defended = isSquareUnderAttack(tempBoard, to, own);
+                    if (!defended) netGain -= myValue;
+                }
+                int score = netGain + 5; // bonus por tempo
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = move;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return bestMove;
+    }
+
+    /**
+     * Detector de forks/double-attacks: move que passa a atacar >=2 pecas
+     * inimigas nao adequadamente defendidas. Preferencia leve para cavalos.
+     */
+    private String findTacticalShot(Map<String, Piece> board, List<String> moves, PieceColor own) {
+        PieceColor enemy = own == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
+        String bestMove = null;
+        int bestGain = 4; // threshold para valer a jogada tactica
+        for (String move : moves) {
+            if (move == null || move.length() < 4) continue;
+            String from = move.substring(0, 2);
+            String to = move.substring(2, 4);
+            Piece movingPiece = board.get(from);
+            if (movingPiece == null) continue;
+            Map<String, Piece> tempBoard = new HashMap<>(board);
+            tempBoard.put(to, movingPiece);
+            tempBoard.remove(from);
+            try {
+                boolean attackedAfter = isSquareUnderAttack(tempBoard, to, enemy);
+                boolean defendedAfter = isSquareUnderAttack(tempBoard, to, own);
+                int selfRisk = (attackedAfter && !defendedAfter) ? movingPiece.getValuePiece() : 0;
+                int targets = 0;
+                int bestTargetValue = 0;
+                for (Map.Entry<String, Piece> entry : tempBoard.entrySet()) {
+                    String sq = entry.getKey();
+                    Piece candidate = entry.getValue();
+                    if (candidate == null || candidate.getColor() != enemy) continue;
+                    if (candidate.getType() == PieceType.KING) continue;
+                    if (!isSquareUnderAttack(tempBoard, sq, own)) continue;
+                    boolean defended = isSquareUnderAttack(tempBoard, sq, enemy);
+                    if (defended && candidate.getValuePiece() <= movingPiece.getValuePiece()) continue;
+                    targets++;
+                    int val = candidate.getValuePiece();
+                    if (val > bestTargetValue) bestTargetValue = val;
+                }
+                if (targets < 2) continue;
+                int score = bestTargetValue - selfRisk;
+                if (movingPiece.getType() == PieceType.KNIGHT) score += 2;
+                if (score > bestGain) {
+                    bestGain = score;
+                    bestMove = move;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return bestMove;
+    }
+
+    /**
+     * Conta quantas casas da zona 3x3 ao redor do rei kingSq estao atacadas
+     * pela cor attackerColor (o proprio quadrado do rei conta).
+     */
+    private int countAttackersOnKingZone(Map<String, Piece> board, String kingSq, PieceColor attackerColor) {
+        if (kingSq == null) return 0;
+        int count = 0;
+        char kCol = kingSq.charAt(0);
+        int kRow = Character.getNumericValue(kingSq.charAt(1));
+        for (int dCol = -1; dCol <= 1; dCol++) {
+            for (int dRow = -1; dRow <= 1; dRow++) {
+                char c = (char) (kCol + dCol);
+                int r = kRow + dRow;
+                if (c < 'a' || c > 'h' || r < 1 || r > 8) continue;
+                String sq = "" + c + r;
+                if (isSquareUnderAttack(board, sq, attackerColor)) count++;
+            }
+        }
+        return count;
+    }
+
+    // Piece-square tables (perspectiva do WHITE; row 0 = rank 8, row 7 = rank 1).
+    // Valores em centipeoes; sao divididos por 10 no somatorio para caber na
+    // escala de material (peao=1..dama=9).
+    private static final int[][] PST_PAWN = {
+        { 0,  0,  0,  0,  0,  0,  0,  0},
+        {50, 50, 50, 50, 50, 50, 50, 50},
+        {10, 10, 20, 30, 30, 20, 10, 10},
+        { 5,  5, 10, 25, 25, 10,  5,  5},
+        { 0,  0,  0, 20, 20,  0,  0,  0},
+        { 5, -5,-10,  0,  0,-10, -5,  5},
+        { 5, 10, 10,-20,-20, 10, 10,  5},
+        { 0,  0,  0,  0,  0,  0,  0,  0}
+    };
+    private static final int[][] PST_KNIGHT = {
+        {-50,-40,-30,-30,-30,-30,-40,-50},
+        {-40,-20,  0,  0,  0,  0,-20,-40},
+        {-30,  0, 10, 15, 15, 10,  0,-30},
+        {-30,  5, 15, 20, 20, 15,  5,-30},
+        {-30,  0, 15, 20, 20, 15,  0,-30},
+        {-30,  5, 10, 15, 15, 10,  5,-30},
+        {-40,-20,  0,  5,  5,  0,-20,-40},
+        {-50,-40,-30,-30,-30,-30,-40,-50}
+    };
+    private static final int[][] PST_BISHOP = {
+        {-20,-10,-10,-10,-10,-10,-10,-20},
+        {-10,  0,  0,  0,  0,  0,  0,-10},
+        {-10,  0,  5, 10, 10,  5,  0,-10},
+        {-10,  5,  5, 10, 10,  5,  5,-10},
+        {-10,  0, 10, 10, 10, 10,  0,-10},
+        {-10, 10, 10, 10, 10, 10, 10,-10},
+        {-10,  5,  0,  0,  0,  0,  5,-10},
+        {-20,-10,-10,-10,-10,-10,-10,-20}
+    };
+    private static final int[][] PST_ROOK = {
+        { 0,  0,  0,  0,  0,  0,  0,  0},
+        { 5, 10, 10, 10, 10, 10, 10,  5},
+        {-5,  0,  0,  0,  0,  0,  0, -5},
+        {-5,  0,  0,  0,  0,  0,  0, -5},
+        {-5,  0,  0,  0,  0,  0,  0, -5},
+        {-5,  0,  0,  0,  0,  0,  0, -5},
+        {-5,  0,  0,  0,  0,  0,  0, -5},
+        { 0,  0,  0,  5,  5,  0,  0,  0}
+    };
+    private static final int[][] PST_QUEEN = {
+        {-20,-10,-10, -5, -5,-10,-10,-20},
+        {-10,  0,  0,  0,  0,  0,  0,-10},
+        {-10,  0,  5,  5,  5,  5,  0,-10},
+        { -5,  0,  5,  5,  5,  5,  0, -5},
+        {  0,  0,  5,  5,  5,  5,  0, -5},
+        {-10,  5,  5,  5,  5,  5,  0,-10},
+        {-10,  0,  5,  0,  0,  0,  0,-10},
+        {-20,-10,-10, -5, -5,-10,-10,-20}
+    };
+    private static final int[][] PST_KING_MG = {
+        {-30,-40,-40,-50,-50,-40,-40,-30},
+        {-30,-40,-40,-50,-50,-40,-40,-30},
+        {-30,-40,-40,-50,-50,-40,-40,-30},
+        {-30,-40,-40,-50,-50,-40,-40,-30},
+        {-20,-30,-30,-40,-40,-30,-30,-20},
+        {-10,-20,-20,-20,-20,-20,-20,-10},
+        { 20, 20,  0,  0,  0,  0, 20, 20},
+        { 20, 30, 10,  0,  0, 10, 30, 20}
+    };
+
+    /**
+     * Soma as PSTs de todas as pecas com sinal a favor de color. Escala 1/10
+     * para caber na mesma faixa do somatorio de material.
+     */
+    private int pstScore(Map<String, Piece> board, PieceColor color) {
+        int score = 0;
+        for (Map.Entry<String, Piece> e : board.entrySet()) {
+            String sq = e.getKey();
+            Piece p = e.getValue();
+            if (p == null || sq == null || sq.length() < 2) continue;
+            int col = sq.charAt(0) - 'a';
+            int rank = Character.getNumericValue(sq.charAt(1));
+            if (col < 0 || col > 7 || rank < 1 || rank > 8) continue;
+            int rowIdx = (p.getColor() == PieceColor.WHITE) ? (8 - rank) : (rank - 1);
+            int val;
+            switch (p.getType()) {
+                case PAWN:   val = PST_PAWN[rowIdx][col];   break;
+                case KNIGHT: val = PST_KNIGHT[rowIdx][col]; break;
+                case BISHOP: val = PST_BISHOP[rowIdx][col]; break;
+                case ROOK:   val = PST_ROOK[rowIdx][col];   break;
+                case QUEEN:  val = PST_QUEEN[rowIdx][col];  break;
+                case KING:   val = PST_KING_MG[rowIdx][col]; break;
+                default:     val = 0;
+            }
+            val = val / 10;
+            score += (p.getColor() == color) ? val : -val;
+        }
+        return score;
+    }
+
+    /**
+     * Retorna 3 se a cor tem dois bispos vivos (bishop pair), 0 caso contrario.
+     */
+    private int bishopPairBonus(Map<String, Piece> board, PieceColor color) {
+        int count = 0;
+        for (Piece p : board.values()) {
+            if (p != null && p.getType() == PieceType.BISHOP && p.getColor() == color) count++;
+        }
+        return count >= 2 ? 3 : 0;
+    }
+
+    /**
+     * Bonus por torres em colunas abertas (sem peoes) ou semi-abertas (sem peao
+     * proprio na coluna).
+     */
+    private int rookOpenFileBonus(Map<String, Piece> board, PieceColor color) {
+        int bonus = 0;
+        for (Map.Entry<String, Piece> e : board.entrySet()) {
+            Piece p = e.getValue();
+            if (p == null || p.getType() != PieceType.ROOK || p.getColor() != color) continue;
+            char col = e.getKey().charAt(0);
+            boolean ownPawn = false;
+            boolean enemyPawn = false;
+            for (int r = 1; r <= 8; r++) {
+                Piece q = board.get("" + col + r);
+                if (q != null && q.getType() == PieceType.PAWN) {
+                    if (q.getColor() == color) ownPawn = true;
+                    else enemyPawn = true;
+                }
+            }
+            if (!ownPawn && !enemyPawn) bonus += 4;      // aberta
+            else if (!ownPawn) bonus += 2;               // semi-aberta
+        }
+        return bonus;
+    }
+
+    /**
+     * Bonus por peoes passados (sem peao adversario em coluna adjacente ou
+     * propria a frente). Escala pelo avanço.
+     */
+    private int passedPawnBonus(Map<String, Piece> board, PieceColor color) {
+        int bonus = 0;
+        int direction = color == PieceColor.WHITE ? 1 : -1;
+        for (Map.Entry<String, Piece> e : board.entrySet()) {
+            Piece p = e.getValue();
+            if (p == null || p.getType() != PieceType.PAWN || p.getColor() != color) continue;
+            String sq = e.getKey();
+            char col = sq.charAt(0);
+            int rank = Character.getNumericValue(sq.charAt(1));
+            boolean blocked = false;
+            for (int dc = -1; dc <= 1 && !blocked; dc++) {
+                char c2 = (char) (col + dc);
+                if (c2 < 'a' || c2 > 'h') continue;
+                int r = rank + direction;
+                while (r >= 1 && r <= 8 && !blocked) {
+                    Piece q = board.get("" + c2 + r);
+                    if (q != null && q.getType() == PieceType.PAWN && q.getColor() != color) blocked = true;
+                    r += direction;
+                }
+            }
+            if (!blocked) {
+                int advance = color == PieceColor.WHITE ? (rank - 2) : (7 - rank);
+                bonus += 2 + Math.max(0, advance);
+            }
+        }
+        return bonus;
+    }
+
+    /**
+     * Quiescence search: estende alem do leaf so em capturas e xeques ate
+     * qDepth==0, mitigando o efeito horizonte do minimax.
+     */
+    private int quiescence(Game game, int alpha, int beta, boolean maximizing, int qDepth) {
+        int standPat = evaluateBoard(game, PieceColor.BLACK);
+        if (qDepth == 0) return standPat;
+        if (maximizing) {
+            if (standPat >= beta) return beta;
+            if (standPat > alpha) alpha = standPat;
+        } else {
+            if (standPat <= alpha) return alpha;
+            if (standPat < beta) beta = standPat;
+        }
+        Map<String, Piece> board = deserializeBoardState(game.getBoardState());
+        PieceColor turn = maximizing ? PieceColor.BLACK : PieceColor.WHITE;
+        List<String> moves = getAllPossibleMoves(game.getId(), board, turn);
+        List<String> tactical = new ArrayList<>();
+        for (String m : moves) {
+            if (m == null || m.length() < 4) continue;
+            String to = m.substring(2, 4);
+            boolean isCapture = board.containsKey(to) && board.get(to) != null;
+            if (isCapture || moveGivesCheck(board, m, turn)) tactical.add(m);
+        }
+        // MVV-LVA: capturas de peca cara primeiro
+        tactical.sort((a, b) -> {
+            Piece pa = board.get(a.substring(2, 4));
+            Piece pb = board.get(b.substring(2, 4));
+            int va = pa != null ? pa.getValuePiece() : 0;
+            int vb = pb != null ? pb.getValuePiece() : 0;
+            return vb - va;
+        });
+        for (String m : tactical) {
+            String from = m.substring(0, 2);
+            String to = m.substring(2, 4);
+            Piece origP = board.get(from);
+            Piece capP = board.get(to);
+            try {
+                applyMove(game, m, board);
+                int score = quiescence(game, alpha, beta, !maximizing, qDepth - 1);
+                undoMove(game, m, board, origP, from, capP, to);
+                if (maximizing) {
+                    if (score > alpha) alpha = score;
+                    if (alpha >= beta) return beta;
+                } else {
+                    if (score < beta) beta = score;
+                    if (beta <= alpha) return alpha;
+                }
+            } catch (Exception ex) {
+                // resiliente: se apply falhar, ignora esse ramo
+            }
+        }
+        return maximizing ? alpha : beta;
     }
 
     /**
