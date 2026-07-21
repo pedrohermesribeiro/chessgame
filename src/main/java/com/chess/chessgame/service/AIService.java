@@ -96,7 +96,6 @@ public class AIService {
 
         ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
             .model(HARD_MODEL)
-            .temperature(0.0)
             .reasoningEffort(ReasoningEffort.HIGH)
             .addSystemMessage(systemPrompt)
             .addUserMessage(userPrompt);
