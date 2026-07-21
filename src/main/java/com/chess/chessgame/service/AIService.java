@@ -77,26 +77,30 @@ public class AIService {
      * Retorna ate 3 lances candidatos (ordenados por forca decrescente) para
      * o modo chatGPT-Hard. O chamador (GameService) faz o rerank tatico final via
      * evaluateBoard e escolhe o vencedor. A lista sempre esta contida em legalMoves.
+     *
+     * @param effort quantidade de raciocinio a gastar. O chamador decide com base
+     *               em sinais taticos (posicao em xeque, endgame, desequilibrio
+     *               material). Se null, cai em MEDIUM.
      */
     public List<String> suggestHardMoveCandidates(
-            String boardStateJson,
             String sideToMove,
             String moveHistory,
             String fen,
             boolean inCheck,
             List<String> legalMoves,
-            String tacticalFacts) {
+            String tacticalFacts,
+            ReasoningEffort effort) {
 
         if (legalMoves == null || legalMoves.isEmpty()) {
             throw new IllegalStateException("Nenhum lance legal disponivel para " + sideToMove);
         }
 
         String systemPrompt = buildHardSystemPrompt();
-        String userPrompt = buildHardUserPrompt(boardStateJson, sideToMove, moveHistory, fen, inCheck, legalMoves, tacticalFacts);
+        String userPrompt = buildHardUserPrompt(sideToMove, moveHistory, fen, inCheck, legalMoves, tacticalFacts);
 
         ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
             .model(HARD_MODEL)
-            .reasoningEffort(ReasoningEffort.HIGH)
+            .reasoningEffort(effort != null ? effort : ReasoningEffort.MEDIUM)
             .addSystemMessage(systemPrompt)
             .addUserMessage(userPrompt);
 
@@ -170,7 +174,7 @@ public class AIService {
             """;
     }
 
-    private String buildHardUserPrompt(String boardStateJson, String sideToMove, String moveHistory,
+    private String buildHardUserPrompt(String sideToMove, String moveHistory,
                                        String fen, boolean inCheck, List<String> legalMoves, String tacticalFacts) {
         StringBuilder sb = new StringBuilder();
         sb.append("POSITION:\n");
@@ -180,8 +184,6 @@ public class AIService {
         sb.append("- Move history (UCI): ")
           .append(moveHistory != null && !moveHistory.isEmpty() ? moveHistory : "No previous moves")
           .append('\n');
-        sb.append('\n');
-        sb.append("BOARD JSON:\n").append(boardStateJson).append('\n');
         sb.append('\n');
         if (tacticalFacts != null && !tacticalFacts.isBlank()) {
             sb.append("TACTICAL FACTS (already computed by server, trust these):\n");

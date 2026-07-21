@@ -1097,7 +1097,6 @@ public class GameService {
                 }
             } else { // Possível en passant
                 String lastMove = game.getLastMove();
-                System.out.println("Verificando en passant. Último movimento: " + lastMove);
                 if (lastMove != null && lastMove.length() >= 4) {
                     String lastFrom = lastMove.substring(0, 2);
                     String lastTo = lastMove.substring(2, 4);
@@ -1363,13 +1362,9 @@ public class GameService {
     }
    
     private boolean isCheckmate(Map<String, Piece> board, PieceColor kinColor) {
-        // Verificar se o rei está em cheque
         if (!isKingInCheck(board, kinColor)) {
-            System.out.println("Não é cheque-mate: rei de " + kinColor + " não está em cheque");
             return false;
         }
-        System.out.println("Verificando cheque-mate para " + kinColor);
-        // Encontrar a posição do rei
         String kingPosition = null;
         for (Map.Entry<String, Piece> entry : board.entrySet()) {
             Piece piece = entry.getValue();
@@ -1382,31 +1377,22 @@ public class GameService {
             System.err.println("Erro: Rei de " + kinColor + " não encontrado");
             return false;
         }
-        // Verificar movimentos possíveis para todas as peças do jogador
         for (Map.Entry<String, Piece> fromEntry : board.entrySet()) {
             Piece piece = fromEntry.getValue();
             if (piece.getColor() != kinColor) {
-                continue; // Pular peças do oponente
+                continue;
             }
             String from = fromEntry.getKey();
-            // Obter movimentos legais diretamente, se possível
             List<String> possibleMoves = getPossibleMoves(board, from, piece, kinColor);
-            System.out.println("Testando peça: " + piece.getType() + " em " + from + ", movimentos possíveis: " + possibleMoves.size());
             for (String to : possibleMoves) {
-                // Simular movimento
                 Map<String, Piece> tempBoard = new HashMap<>(board);
-                Piece captured = tempBoard.get(to);
                 tempBoard.put(to, tempBoard.remove(from));
-                // Verificar se o rei sai do cheque
                 boolean stillInCheck = isKingInCheck(tempBoard, kinColor);
-                System.out.println("Movimento simulado: " + from + " -> " + to + ", ainda em cheque: " + stillInCheck);
                 if (!stillInCheck) {
-                    System.out.println("Escapatória encontrada: " + from + " -> " + to);
                     return false;
                 }
             }
         }
-        System.out.println("Cheque-mate confirmado para " + kinColor);
         return true;
     }
    
@@ -1415,7 +1401,6 @@ public class GameService {
         PieceType type = piece.getType();
         int fromCol = from.charAt(0) - 'a';
         int fromRow = Character.getNumericValue(from.charAt(1)) - 1;
-        System.out.println("Calculando movimentos para " + type + " em " + from);
         if (type == PieceType.PAWN) {
             int direction = (color == PieceColor.WHITE) ? 1 : -1;
             int startRow = (color == PieceColor.WHITE) ? 1 : 6;
@@ -1712,34 +1697,25 @@ public class GameService {
    
     private List<String> getAllPossibleMoves(Long gameId, Map<String, Piece> board, PieceColor color) {
         List<String> allMoves = new ArrayList<>();
-        System.out.println("Gerando movimentos possíveis para " + color);
         for (Map.Entry<String, Piece> entry : board.entrySet()) {
             String from = entry.getKey();
             Piece piece = entry.getValue();
             if (piece == null || piece.getColor() != color) {
                 continue;
             }
-            System.out.println("Verificando movimentos para peça " + piece.getType() + " em " + from);
             List<String> moves = getPossibleMovesForPiece(gameId, board, from, piece);
             for (String to : moves) {
                 String notation = generateMoveNotation(from, to, piece, board);
                 if (notation != null && isValidNotation(from) && isValidNotation(to)) {
-                    // Verifica se o movimento é legal (não deixa o rei em xeque)
                     Map<String, Piece> tempBoard = new HashMap<>(board);
                     tempBoard.put(to, tempBoard.get(from));
                     tempBoard.remove(from);
                     if (!isKingInCheck(tempBoard, color)) {
                         allMoves.add(notation);
-                        System.out.println("Movimento válido adicionado: " + notation);
-                    } else {
-                        System.out.println("Movimento descartado (deixa rei em xeque): " + notation);
                     }
-                } else {
-                    System.out.println("Movimento inválido descartado: " + from + to);
                 }
             }
         }
-        System.out.println("Total de movimentos possíveis: " + allMoves.size());
         return allMoves;
     }
    
@@ -4182,16 +4158,17 @@ public class GameService {
         String fen = generateFEN(game, board);
         boolean inCheck = game.isInCheck();
         String tacticalFacts = buildTacticalFacts(game, board, PieceColor.BLACK, legalMoves);
+        com.openai.models.ReasoningEffort effort = chooseReasoningEffort(board, inCheck);
 
         String historyForLog = moveHistory.isEmpty()
             ? "none"
             : moveHistory.substring(0, Math.min(80, moveHistory.length()));
         System.out.println("[chatGPT-Hard] FEN=" + fen + " InCheck=" + inCheck
-            + " LegalMoves=" + legalMoves.size() + " History=" + historyForLog);
+            + " LegalMoves=" + legalMoves.size() + " Effort=" + effort + " History=" + historyForLog);
 
         // 4) IA devolve ate 3 candidatos legais (rankeados por forca)
         List<String> candidates = aiService.suggestHardMoveCandidates(
-            game.getBoardState(), "BLACK", moveHistory, fen, inCheck, legalMoves, tacticalFacts);
+            "BLACK", moveHistory, fen, inCheck, legalMoves, tacticalFacts, effort);
 
         // 5) Rerank via evaluateBoard (heuristica interna); desempate = ordem do modelo
         String bestMove = rerankCandidates(game, candidates);
@@ -4304,6 +4281,19 @@ public class GameService {
      * valores de peca (peao=1 ... rainha=9, rei nao entra no somatorio).
      */
     private String describeMaterial(Map<String, Piece> board, PieceColor ownColor) {
+        int[] totals = materialTotals(board);
+        int white = totals[0];
+        int black = totals[1];
+        int own = ownColor == PieceColor.WHITE ? white : black;
+        int enemy = ownColor == PieceColor.WHITE ? black : white;
+        int diff = own - enemy;
+        String sign = diff > 0 ? "+" : "";
+        return "Material: White " + white + " vs Black " + black
+            + " (You as " + ownColor + ": " + sign + diff + ")";
+    }
+
+    /** Retorna [totalWhite, totalBlack] em pontos de material, ignorando o rei. */
+    private int[] materialTotals(Map<String, Piece> board) {
         int white = 0;
         int black = 0;
         for (Piece p : board.values()) {
@@ -4312,12 +4302,29 @@ public class GameService {
             if (p.getColor() == PieceColor.WHITE) white += v;
             else black += v;
         }
-        int own = ownColor == PieceColor.WHITE ? white : black;
-        int enemy = ownColor == PieceColor.WHITE ? black : white;
-        int diff = own - enemy;
-        String sign = diff > 0 ? "+" : "";
-        return "Material: White " + white + " vs Black " + black
-            + " (You as " + ownColor + ": " + sign + diff + ")";
+        return new int[] { white, black };
+    }
+
+    /** Diferenca de material sob a perspectiva de {@code ownColor} (positivo = ganhando). */
+    private int materialDiff(Map<String, Piece> board, PieceColor ownColor) {
+        int[] totals = materialTotals(board);
+        int own = ownColor == PieceColor.WHITE ? totals[0] : totals[1];
+        int enemy = ownColor == PieceColor.WHITE ? totals[1] : totals[0];
+        return own - enemy;
+    }
+
+    /**
+     * Decide o nivel de raciocinio a gastar no gpt-5: HIGH em posicoes onde
+     * precisao paga a latencia extra (xeque, endgame com <=12 pecas, ou
+     * desequilibrio material >=3 pontos absolutos). Nas demais, MEDIUM
+     * mantem qualidade competente com resposta 3-5x mais rapida.
+     */
+    private com.openai.models.ReasoningEffort chooseReasoningEffort(Map<String, Piece> board, boolean inCheck) {
+        if (inCheck) return com.openai.models.ReasoningEffort.HIGH;
+        if (board.size() <= 12) return com.openai.models.ReasoningEffort.HIGH;
+        int diff = materialDiff(board, PieceColor.BLACK);
+        if (Math.abs(diff) >= 3) return com.openai.models.ReasoningEffort.HIGH;
+        return com.openai.models.ReasoningEffort.MEDIUM;
     }
 
     private int pieceMaterialValue(PieceType type) {
